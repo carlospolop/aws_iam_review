@@ -25,5 +25,5 @@ options:
   -h, --help  show this help message and exit
 
 # Run example
-usage: aws_sensitive_permissions.py profile-name profile-name2 profile-name3
+aws_sensitive_permissions.py profile-name profile-name2 profile-name3
 ```
