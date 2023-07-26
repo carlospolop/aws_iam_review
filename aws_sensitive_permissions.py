@@ -9,10 +9,6 @@ from termcolor import colored
 with open("sensitive_permissions.yaml", "r") as file:
     permissions_data = yaml.safe_load(file)
 
-# Initialize Boto3 clients
-session = boto3.Session(profile_name="cere-network-prod")
-iam = session.client("iam")
-
 # Function to combine all permissions from policy documents
 def combine_permissions(policy_documents):
     permissions = []
