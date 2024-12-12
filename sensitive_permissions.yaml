@@ -1,0 +1,482 @@
+
+apigateway:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-apigateway-privesc
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-api-gateway-post-exploitation
+  
+  sensitive:
+    - apigateway:POST
+    - apigateway:GET
+    - apigateway:UpdateGatewayResponse, apigateway:CreateDeployment
+    - apigateway:UpdateStage, apigateway:CreateDeployment
+    - apigateway:PutMethodResponse, apigateway:CreateDeployment
+    - apigateway:UpdateRestApi, apigateway:CreateDeployment
+    - apigateway:CreateApiKey, apigateway:UpdateApiKey, apigateway:CreateUsagePlan, apigateway:CreateUsagePlanKey
+    - apigateway:UpdateRestApiPolicy, apigateway:PATCH
+
+
+chime:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-chime-privesc
+  
+  sensitive:
+    - chime:CreateApiKey
+
+codebuild:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-codebuild-privesc
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-codebuild-post-exploitation
+
+  privesc:
+    - iam:PassRole, codebuild:CreateProject
+    - iam:PassRole, codebuild:UpdateProject
+    - codebuild:UpdateProject
+  
+  sensitive:
+    - codebuild:DeleteProject
+    - codebuild:DeleteSourceCredentials
+
+codepipeline:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-codepipeline-privesc
+
+  pivesc:
+    - iam:PassRole, codepipeline:CreatePipeline, codebuild:CreateProject, codepipeline:StartPipelineExecution
+    - codebuild:UpdateProject, codepipeline:UpdatePipeline, codepipeline:StartPipelineExecution
+
+  sensitive:
+    - codepipeline:pollforjobs
+
+
+codestar:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-codestar-privesc
+
+  privesc:
+    - iam:PassRole, codestar:CreateProject
+    - codestar:CreateProject, codestar:AssociateTeamMember
+    - codestar:CreateProjectFromTemplate
+
+cloudformation:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-cloudformation-privesc
+  
+  privesc:
+    - iam:PassRole, cloudformation:CreateStack
+    - iam:PassRole, cloudformation:UpdateStack
+    - iam:PassRole, cloudformation:SetStackPolicy
+    - cloudformation:UpdateStack
+    - cloudformation:SetStackPolicy
+    - iam:PassRole, cloudformation:CreateChangeSet, cloudformation:ExecuteChangeSet, cloudformation:SetStackPolicy
+    - iam:PassRole, cloudformation:SetStackPolicy
+    - cloudformation:CreateChangeSet, cloudformation:ExecuteChangeSet
+    - cloudformation:SetStackPolicy
+    - iam:PassRole, cloudformation:CreateStackSet
+    - iam:PassRole, cloudformation:UpdateStackSet
+    - cloudformation:UpdateStackSet
+
+cognito:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-cognito-privesc
+  
+  privesc:
+    - cognito-identity:SetIdentityPoolRoles, iam:PassRole
+    - cognito-identity:update-identity-pool
+    - cognito-idp:AdminAddUserToGroup
+    - iam:PassRole, cognito-idp:CreateGroup
+    - iam:PassRole, cognito-idp:UpdateGroup
+    - cognito-idp:AdminConfirmSignUp
+    - cognito-idp:AdminCreateUser
+    - cognito-idp:AdminEnableUser
+    - cognito-idp:AdminInitiateAuth, cognito-idp:AdminRespondToAuthChallenge
+    - cognito-idp:AdminSetUserPassword
+    - cognito-idp:CreateUserImportJob
+    - cognito-idp:StartUserImportJob
+    - cognito-idp:CreateIdentityProvider
+    - cognito-idp:UpdateIdentityProvider
+  
+  sensitive:
+    - cognito-idp:AdminSetUserSettings
+    - cognito-idp:SetUserMFAPreference
+    - cognito-idp:SetUserPoolMfaConfig
+    - cognito-idp:UpdateUserPool
+    - cognito-idp:AdminUpdateUserAttributes
+    - cognito-idp:CreateUserPoolClient
+    - cognito-idp:UpdateUserPoolClient
+
+datapipeline:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-datapipeline-privesc
+  
+  privesc:
+    - iam:PassRole, datapipeline:CreatePipeline, datapipeline:PutPipelineDefinition, datapipeline:ActivatePipeline
+
+ds:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-directory-services-privesc
+  
+  sensitive:
+    - ds:ResetUserPassword
+
+dynamodb:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-dynamodb-post-exploitation
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-dynamodb-privesc
+  
+  sensitive:
+    - dynamodb:BatchGetItem
+    - dynamodb:GetItem
+    - dynamodb:Query
+    - dynamodb:Scan
+    - dynamodb:PartiQLSelect
+    - dynamodb:ExportTableToPointInTime
+    - dynamodb:CreateTable, dynamodb:RestoreTableFromBackup
+    - dynamodb:PutItem
+    - dynamodb:UpdateItem
+    - dynamodb:DeleteTable
+    - dynamodb:DeleteBackup
+
+
+ebs:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ebs-privesc
+  
+  sensitive:
+    - ebs:ListSnapshotBlocks, ebs:GetSnapshotBlock, ec2:DescribeSnapshots
+    - ec2:CreateSnapshot
+
+ec2:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ec2-privesc
+  
+  privesc:
+    - iam:PassRole, ec2:RunInstances
+    - iam:PassRole, iam:AddRoleToInstanceProfile
+    - ec2:RequestSpotInstances,iam:PassRole
+    - ec2:ModifyInstanceAttribute
+    - ec2:CreateLaunchTemplateVersion, ec2:CreateLaunchTemplate, ec2:ModifyLaunchTemplate
+    - autoscaling:CreateLaunchConfiguration, autoscaling:CreateAutoScalingGroup, iam:PassRole
+    - ec2-instance-connect:SendSSHPublicKey
+    - ec2-instance-connect:SendSerialConsoleSSHPublicKey
+  
+  sensitive:
+    - EC2:DescribeVolumes, DLM:CreateLifeCyclePolicy
+    - ec2:DescribeInstances, ec2:RunInstances, ec2:CreateSecurityGroup, ec2:AuthorizeSecurityGroupIngress, ec2:CreateTrafficMirrorTarget, ec2:CreateTrafficMirrorSession, ec2:CreateTrafficMirrorFilter, ec2:CreateTrafficMirrorFilterRule
+
+ecr:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ecr-privesc
+  
+  sensitive:
+    - ecr:GetAuthorizationToken, ecr:BatchGetImage
+    - ecr:GetAuthorizationToken, ecr:BatchCheckLayerAvailability, ecr:CompleteLayerUpload, ecr:InitiateLayerUpload, ecr:PutImage, ecr:UploadLayerPart
+    - ecr:SetRepositoryPolicy
+    - ecr:PutRegistryPolicy
+    - ecr:PutLifecyclePolicy
+    - ecr:DeleteRepository
+    - ecr-public:DeleteRepository
+    - ecr:BatchDeleteImage
+    - ecr-public:BatchDeleteImage
+
+ecs:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ecs-privesc
+  
+  privesc:
+    - iam:PassRole, ecs:RegisterTaskDefinition, ecs:RunTask
+    - iam:PassRole, ecs:RegisterTaskDefinition, ecs:StartTask
+    - iam:PassRole, ecs:RegisterTaskDefinition, ecs:CreateService
+    - iam:PassRole, ecs:RegisterTaskDefinition, ecs:CreateService
+    - ecs:RegisterTaskDefinition, ecs:RunTask
+    - ecs:RegisterTaskDefinition, ecs:StartTask
+    - ecs:RegisterTaskDefinition, ecs:UpdateService
+    - ecs:RegisterTaskDefinition, ecs:CreateService
+    - ecs:ExecuteCommand, ecs:DescribeTasks, ecs:RunTask
+    - ecs:ExecuteCommand, ecs:DescribeTasks, ecs:StartTask
+    - ecs:ExecuteCommand, ecs:DescribeTasks, ecs:UpdateService
+    - ecs:ExecuteCommand, ecs:DescribeTasks, ecs:CreateService
+
+efs:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-efs-privesc
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-efs-post-exploitation
+  
+  sensitive:
+    - elasticfilesystem:DeleteFileSystemPolicy
+    - elasticfilesystem:PutFileSystemPolicy
+    - elasticfilesystem:ClientMount
+    - elasticfilesystem:CreateMountTarget
+    - elasticfilesystem:ModifyMountTargetSecurityGroups
+    - elasticfilesystem:DeleteMountTarget
+    - elasticfilesystem:DeleteFileSystem
+    - elasticfilesystem:UpdateFileSystem
+    - elasticfilesystem:CreateAccessPoint, elasticfilesystem:DeleteAccessPoint
+
+elasticbeanstalk:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-elastic-beanstalk-privesc
+  
+  privesc:
+    - elasticbeanstalk:CreateApplication, elasticbeanstalk:CreateEnvironment, elasticbeanstalk:CreateApplicationVersion, elasticbeanstalk:UpdateEnvironment, iam:PassRole
+    - elasticbeanstalk:CreateApplicationVersion, elasticbeanstalk:UpdateEnvironment, cloudformation:GetTemplate, cloudformation:DescribeStackResources, cloudformation:DescribeStackResource, autoscaling:DescribeAutoScalingGroups, autoscaling:SuspendProcesses, autoscaling:SuspendProcesses
+
+  sensitive:
+    - elasticbeanstalk:DeleteApplicationVersion
+    - elasticbeanstalk:TerminateEnvironment
+    - elasticbeanstalk:DeleteApplication
+
+
+emr:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-emr-privesc
+  
+  privesc:
+    - iam:PassRole, elasticmapreduce:RunJobFlow
+    - elasticmapreduce:CreateEditor, iam:ListRoles, elasticmapreduce:ListClusters, iam:PassRole, elasticmapreduce:DescribeEditor, elasticmapreduce:OpenEditorInConsole
+    - elasticmapreduce:OpenEditorInConsole
+    
+gamelift:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-gamelift
+  
+  sensitive:
+    - gamelift:RequestUploadCredentials
+
+glue:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-glue-privesc
+  
+  privesc:
+    - iam:PassRole, glue:CreateDevEndpoint
+    - glue:UpdateDevEndpoint
+    - iam:PassRole, glue:CreateJob, glue:StartJobRun
+    - iam:PassRole, glue:CreateJob, glue:CreateTrigger
+    - iam:PassRole, glue:UpdateJob, glue:StartJobRun
+    - iam:PassRole, glue:UpdateJob, glue:CreateTrigger
+    - glue:UpdateJob
+
+iam:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-iam-privesc
+  
+  privesc:
+    - iam:CreatePolicyVersion
+    - iam:SetDefaultPolicyVersion
+    - iam:CreateAccessKey
+    - iam:CreateLoginProfile
+    - iam:UpdateLoginProfile
+    - iam:CreateServiceSpecificCredential
+    - iam:ResetServiceSpecificCredential
+    - iam:AttachUserPolicy
+    - iam:AttachGroupPolicy
+    - iam:AttachRolePolicy
+    - iam:PutUserPolicy
+    - iam:PutGroupPolicy
+    - iam:PutRolePolicy
+    - iam:AddUserToGroup
+    - iam:UpdateAssumeRolePolicy
+    - iam:UploadSSHPublicKey
+    - iam:DeactivateMFADevice
+    - iam:ResyncMFADevice
+    - iam:UpdateSAMLProvider, iam:ListSAMLProviders
+    - iam:UpdateOpenIDConnectProviderThumbprint, iam:ListOpenIDConnectProviders
+
+kms:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-kms-privesc
+  
+  sensitive:
+    - kms:PutKeyPolicy
+    - kms:CreateGrant
+    - kms:CreateKey, kms:ReplicateKey
+    - kms:Decrypt
+
+lambda:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-lambda-privesc
+  
+  privesc:
+    - iam:PassRole, lambda:CreateFunction, lambda:InvokeFunction
+    - iam:PassRole, lambda:CreateFunction, lambda:InvokeFunctionUrl
+    - iam:PassRole, lambda:CreateFunction, lambda:AddPermission
+    - iam:PassRole, lambda:CreateFunction, lambda:CreateEventSourceMapping
+    - lambda:AddPermission
+    - lambda:UpdateFunctionCode
+    - lambda:UpdateFunctionConfiguration
+  
+  sensitive:
+    - lambda:AddLayerVersionPermission
+
+lightsail:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-lightsail-privesc
+  
+  sensitive:
+    - lightsail:DownloadDefaultKeyPair
+    - lightsail:GetInstanceAccessDetails
+    - lightsail:GetRelationalDatabaseMasterUserPassword
+    - lightsail:UpdateRelationalDatabase
+    - lightsail:OpenInstancePublicPorts
+    - lightsail:PutInstancePublicPorts
+    - lightsail:SetResourceAccessForBucket
+    - lightsail:CreateBucketAccessKey
+    - lightsail:UpdateBucket
+    - lightsail:UpdateContainerService
+    - lightsail:CreateDomainEntry
+    - lightsail:UpdateDomainEntry
+
+mediapackage:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-mediapackage-privesc
+  
+  sensitive:
+    - mediapackage:RotateChannelCredentials
+    - mediapackage:RotateIngestEndpointCredentials
+
+mq:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-mq-privesc
+  
+  sensitive:
+    - mq:ListBrokers, mq:CreateUser
+    - mq:ListBrokers, mq:ListUsers, mq:UpdateUser
+    - mq:ListBrokers, mq:UpdateBroker
+
+msk:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-msk-privesc
+  
+  sensitive:
+    - msk:ListClusters, msk:UpdateSecurity
+
+rds:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-rds-post-exploitation
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-rds-privesc
+  
+  sensitive:
+    - rds:ModifyDBInstance
+    - rds:CreateDBSnapshot, rds:RestoreDBInstanceFromDBSnapshot, rds:ModifyDBInstance
+    - rds-db:connect
+    - rds:DownloadDBLogFilePortion
+    - rds:DeleteDBInstance
+    - rds:StartExportTask
+
+redshift:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-redshift-privesc
+  
+  sensitive:
+    - redshift:DescribeClusters, redshift:GetClusterCredentials
+    - redshift:DescribeClusters, redshift:GetClusterCredentialsWithIAM
+    - redshift:DescribeClusters, redshift:ModifyCluster
+
+route53:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/route53-createhostedzone-route53-changeresourcerecordsets-acm-pca-issuecertificate-acm-pca-getcer
+  sensitive:
+    - route53:CreateHostedZone, route53:ChangeResourceRecordSets, acm-pca:IssueCertificate, acm-pca:GetCertificate
+
+sns:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-sns-post-exploitation
+  
+  sensitive:
+    - sns:DeleteTopic
+    - sns:Publish
+    - sns:SetTopicAttributes
+    - sns:Subscribe
+    - sns:Unsubscribe
+    - sns:AddPermission
+    - sns:RemovePermission
+
+sqs:
+  urls: 
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-sqs-post-exploitation
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-sqs-privesc
+  
+  sensitive:
+    - sqs:AddPermission
+    - sqs:SendMessage
+    - sqs:SendMessageBatch
+    - sqs:ReceiveMessage
+    - sqs:DeleteMessage
+    - sqs:ChangeMessageVisibility
+    - sqs:DeleteQueue
+    - sqs:PurgeQueue
+    - sqs:RemovePermission
+
+
+sso:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-sso-and-identitystore-privesc
+  
+  privesc:
+    - identitystore:CreateGroupMembership
+    - sso:PutInlinePolicyToPermissionSet, sso:ProvisionPermissionSet
+    - sso:AttachManagedPolicyToPermissionSet, sso:ProvisionPermissionSet
+    - sso:AttachCustomerManagedPolicyToPermissionSet, sso:ProvisionPermissionSet
+    - sso:CreateAccountAssignment
+
+s3:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-s3-privesc
+  
+  sensitive:
+    - s3:PutObject
+    - s3:GetObject
+    - s3:PutBucketPolicy
+    - s3:PutBucketAcl
+    - s3:PutObjectVersionAcl
+
+sagemaker:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-sagemaker-privesc
+  
+  privesc:
+    - iam:PassRole, sagemaker:CreateNotebookInstance, sagemaker:CreatePresignedNotebookInstanceUrl
+    - sagemaker:CreatePresignedNotebookInstanceUrl
+    - sagemaker:CreateProcessingJob,iam:PassRole
+    - sagemaker:CreateTrainingJob, iam:PassRole
+    - sagemaker:CreateHyperParameterTuningJob, iam:PassRole
+
+secretsmanager:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-secrets-manager-privesc
+  
+  sensitive:
+    - secretsmanager:GetSecretValue
+    - secretsmanager:PutResourcePolicy
+
+ssm:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ssm-privesc
+  
+  privesc:
+    - ssm:SendCommand
+    - ssm:StartSession
+    - ssm:ResumeSession
+  
+  sensitive:
+    - ssm:DescribeParameters
+    - ssm:ListCommands
+    - ssm:GetCommandInvocation
+
+sts:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-sts-privesc
+  
+  privesc:
+    - sts:AssumeRole
+    - sts:AssumeRoleWithSAML
+    - sts:AssumeRoleWithWebIdentity
+
+workdocs:
+  urls:
+    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-workdocs-privesc
+  
+  sensitive:
+    - workdocs:CreateUser
+    - workdocs:GetDocument
+    - workdocs:AddResourcePermissions
+    - workdocs:AddUserToGroup
