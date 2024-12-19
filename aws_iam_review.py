@@ -4,6 +4,7 @@ import yaml
 import fnmatch
 import argparse
 import tiktoken
+from time import sleep
 import openai  # Correct import
 import json
 from termcolor import colored
@@ -564,7 +565,7 @@ def is_group_empty(iam_client, group_name):
 
 
 # Get all unused roles
-def get_unused_roles(accessanalyzer, analyzer_arn):
+def get_unused_roles(accessanalyzer, analyzer_arn, verbose):
     global UNUSED_ROLES
 
     findings = accessanalyzer.list_findings_v2(analyzerArn=analyzer_arn, filter={'findingType': {'eq': ['UnusedIAMRole']}}).get("findings", [])
@@ -586,7 +587,7 @@ def get_unused_roles(accessanalyzer, analyzer_arn):
 
 
 # Get all unused logins
-def get_unused_logins(accessanalyzer, analyzer_arn):
+def get_unused_logins(accessanalyzer, analyzer_arn, verbose):
     global UNUSED_LOGINS
 
     findings = accessanalyzer.list_findings_v2(analyzerArn=analyzer_arn, filter={'findingType': {'eq': ['UnusedIAMUserPassword']}}).get("findings", [])
@@ -608,7 +609,7 @@ def get_unused_logins(accessanalyzer, analyzer_arn):
 
 
 # Get all unused access keys
-def get_unused_access_keys(accessanalyzer, analyzer_arn):
+def get_unused_access_keys(accessanalyzer, analyzer_arn, verbose):
     global UNUSED_ACC_KEYS
 
     findings = accessanalyzer.list_findings_v2(analyzerArn=analyzer_arn, filter={'findingType': {'eq': ['UnusedIAMUserAccessKey']}}).get("findings", [])
@@ -751,10 +752,12 @@ def main(profiles, api_key, verbose, only_yaml, only_openai, all_resources, prin
         session = boto3.Session(profile_name=profile)
         global iam
         iam = session.client("iam")
+        already_created_analyzers = True
 
         # Get the account ID
         sts = session.client("sts")
         account_id = sts.get_caller_identity()["Account"]
+        print(f"{colored('[+] ', 'green')}Analyzing account {account_id} ({profile})...")
 
         # Get unused analyzer
         created_analyzers = []
@@ -762,6 +765,8 @@ def main(profiles, api_key, verbose, only_yaml, only_openai, all_resources, prin
         try:
             analyzer_arn = accessanalyzer.create_analyzer(analyzerName="iam_analyzer_unused", type='ACCOUNT_UNUSED_ACCESS', archiveRules=[])["arn"]
             created_analyzers.append("iam_analyzer_unused")
+            print(f"{colored('[+] ', 'green')}Analyzer iam_analyzer_unused created successfully.")
+            already_created_analyzers = False
         except Exception as e:
             analyzer_arn = ""
             analyzers = accessanalyzer.list_analyzers(type="ACCOUNT_UNUSED_ACCESS")
@@ -777,6 +782,8 @@ def main(profiles, api_key, verbose, only_yaml, only_openai, all_resources, prin
         try:
             analyzer_arn_exposed = accessanalyzer.create_analyzer(analyzerName="iam_analyzer_exposed", type='ACCOUNT', archiveRules=[])["arn"]
             created_analyzers.append("iam_analyzer_exposed")
+            print(f"{colored('[+] ', 'green')}Analyzer iam_analyzer_exposed created successfully.")
+            already_created_analyzers = False
         except Exception as e:
             analyzer_arn_exposed = ""
             analyzers = accessanalyzer.list_analyzers(type="ACCOUNT")
@@ -789,11 +796,15 @@ def main(profiles, api_key, verbose, only_yaml, only_openai, all_resources, prin
                 continue
 
         try:
+            if not already_created_analyzers:
+                print(f"{colored('[+] ', 'grey')}Analyzers were just created. Waiting 3 minutes for them to analyze the account, don't stop the script...")
+                sleep(60*3)
+            
             # Get external and unused principals
             get_external_principals(accessanalyzer, analyzer_arn_exposed, verbose)
-            get_unused_access_keys(accessanalyzer, analyzer_arn)
-            get_unused_logins(accessanalyzer, analyzer_arn)
-            get_unused_roles(accessanalyzer, analyzer_arn)
+            get_unused_access_keys(accessanalyzer, analyzer_arn, verbose)
+            get_unused_logins(accessanalyzer, analyzer_arn, verbose)
+            get_unused_roles(accessanalyzer, analyzer_arn, verbose)
 
             # Check permissions for users
             users = iam.list_users()["Users"]
