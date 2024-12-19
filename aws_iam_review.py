@@ -278,8 +278,11 @@ def print_results(account_id, profile, print_reasons, merge_perms):
     print()
 
 
-def get_len_tokens(prompt, model="gpt-4"):
-    encoding = tiktoken.encoding_for_model(model)
+def get_len_tokens(prompt, model="gpt-4o"):
+    try:
+        encoding = tiktoken.encoding_for_model(model)
+    except:
+        encoding = tiktoken.encoding_for_model("gpt-4")
     return len(encoding.encode(prompt))
 
 
@@ -299,21 +302,21 @@ def remove_fences(text: str) -> str:
     return text
 
 
-def fix_json(orig_text: str, orig_response: str, json_error: str) -> str:
+def fix_json(orig_text: str, orig_response: str, json_error: str, model: str) -> str:
     """Function that asks to fix a given json"""
 
     all_msg = f"{orig_text}\n\n You already gave this response:\n{orig_response}\n\nWhich resulted in this error:\n{json_error}\n\nPlease fix it and respond with a valid json."
-    response = contact(all_msg)
+    response = contact(all_msg, model=model)
     return response
 
 
 # Ask OpenAI
-def contact(prompt: str, p_info_msg: bool = True, model: str = "gpt-4") -> str:
+def contact(prompt: str, p_info_msg: bool = True, model: str = "gpt-4o") -> str:
     """Function that asks the model"""
 
     global openai
 
-    if get_len_tokens(prompt) > 50000:
+    if get_len_tokens(prompt, model=model) > 50000:
         print(f"{colored('[-] ', 'red')}Too many permissions.")
         return None
 
@@ -339,7 +342,7 @@ def contact(prompt: str, p_info_msg: bool = True, model: str = "gpt-4") -> str:
     try:
         json_text = json.loads(all_text)
     except json.decoder.JSONDecodeError as e:
-        json_text = fix_json(prompt, all_text, str(e))
+        json_text = fix_json(prompt, all_text, str(e), model=model)
 
     return json_text
 
@@ -379,6 +382,7 @@ def get_readonly_perms(profile):
 
     READONLY_PERMS = perms
 
+
 # Function to combine all permissions from policy documents
 def combine_permissions(policy_documents, all_resources, all_actions):
     global READONLY_PERMS
@@ -409,8 +413,9 @@ def combine_permissions(policy_documents, all_resources, all_actions):
                 permissions.extend(actions)
     return permissions
 
+
 # Function to check if a policy contains sensitive or privesc permissions
-def check_policy(all_perm, arn, api_key, verbose, only_yaml, only_openai):
+def check_policy(all_perm, arn, api_key, verbose, only_yaml, only_openai, model):
     global PERMISSIONS_DATA
     if not all_perm:
         return
@@ -461,11 +466,11 @@ def check_policy(all_perm, arn, api_key, verbose, only_yaml, only_openai):
             if api_key:
                 all_perm_str = ", ".join(all_perm)
                 prompt = PROMPT_ASK_PERMISSIONS.replace("__PERMISSIONS__", all_perm_str)
-                response = contact(prompt)
+                response = contact(prompt, model=model)
                 if response:
-                    if response["privesc"] or response["sensitive"]:
+                    if response.get("privesc") or response.get("sensitive"):
                         prompt = PROMPT_CONFIRM_PERMISSIONS.replace("__PERMISSIONS__", all_perm_str).replace("__GIVEN_PERMISSIONS__", json.dumps(response, indent=4))
-                        response = contact(prompt)
+                        response = contact(prompt, model=model)
                         if "privesc" in response:
                             all_privesc_perms_ai.extend(response["privesc"])
                             all_privesc_perms_ai_reasons = response["privesc_reasons"]
@@ -487,7 +492,7 @@ def check_policy(all_perm, arn, api_key, verbose, only_yaml, only_openai):
 
 
 # Function to get inline and attached policies for a principal
-def get_policies(principal_type, principal_name, arn, api_key, verbose, only_yaml, only_openai, all_resources, all_actions):
+def get_policies(principal_type, principal_name, arn, api_key, verbose, only_yaml, only_openai, all_resources, all_actions, model):
     policy_document = []
 
     if principal_type == "User":
@@ -497,13 +502,17 @@ def get_policies(principal_type, principal_name, arn, api_key, verbose, only_yam
     elif principal_type == "Group":
         attached_policies = iam.list_attached_group_policies(GroupName=principal_name)
 
-    for policy in attached_policies["AttachedPolicies"]:
-        policy_data = iam.get_policy(PolicyArn=policy["PolicyArn"])
-        policy_version = iam.get_policy_version(
-            PolicyArn=policy["PolicyArn"], VersionId=policy_data["Policy"]["DefaultVersionId"]
-        )
-        policy_document.append(policy_version["PolicyVersion"]["Document"])
-
+    for policy in attached_policies.get("AttachedPolicies", []):
+        try:
+            policy_data = iam.get_policy(PolicyArn=policy["PolicyArn"])
+            policy_version = iam.get_policy_version(
+                PolicyArn=policy["PolicyArn"], VersionId=policy_data["Policy"]["DefaultVersionId"]
+            )
+            policy_document.append(policy_version["PolicyVersion"]["Document"])
+        except Exception as e:
+            if verbose:
+                print(f"{colored('[-] ', 'red')}Error fetching policy {policy['PolicyArn']} for {principal_type} {principal_name}: {str(e)}")
+            continue
 
     if principal_type == "User":
         inline_policies = iam.list_user_policies(UserName=principal_name)
@@ -512,23 +521,28 @@ def get_policies(principal_type, principal_name, arn, api_key, verbose, only_yam
     elif principal_type == "Group":
         inline_policies = iam.list_group_policies(GroupName=principal_name)
 
-
     for policy_name in inline_policies.get("PolicyNames", []):
-        if principal_type == "User":
-            inlinepolicy = iam.get_user_policy(UserName=principal_name, PolicyName=policy_name)
-        elif principal_type == "Role":
-            inlinepolicy = iam.get_role_policy(RoleName=principal_name, PolicyName=policy_name)
-        elif principal_type == "Group":
-            inlinepolicy = iam.get_group_policy(GroupName=principal_name, PolicyName=policy_name)
+        try:
+            if principal_type == "User":
+                inlinepolicy = iam.get_user_policy(UserName=principal_name, PolicyName=policy_name)
+            elif principal_type == "Role":
+                inlinepolicy = iam.get_role_policy(RoleName=principal_name, PolicyName=policy_name)
+            elif principal_type == "Group":
+                inlinepolicy = iam.get_group_policy(GroupName=principal_name, PolicyName=policy_name)
 
-        policy_document.append(inlinepolicy["PolicyDocument"])
+            policy_document.append(inlinepolicy["PolicyDocument"])
+        except Exception as e:
+            if verbose:
+                print(f"{colored('[-] ', 'red')}Error fetching inline policy {policy_name} for {principal_type} {principal_name}: {str(e)}")
+            continue
 
     if policy_document:
         all_perm = combine_permissions(policy_document, all_resources, all_actions)
-        interesting_perms = check_policy(all_perm, arn, api_key, verbose, only_yaml, only_openai)
+        interesting_perms = check_policy(all_perm, arn, api_key, verbose, only_yaml, only_openai, model)
         return interesting_perms
     else:
         return None
+
 
 def is_group_empty(iam_client, group_name):
     """
@@ -553,139 +567,168 @@ def is_group_empty(iam_client, group_name):
 def get_unused_roles(accessanalyzer, analyzer_arn):
     global UNUSED_ROLES
 
-    findings = accessanalyzer.list_findings_v2(analyzerArn=analyzer_arn, filter={'findingType': {'eq': ['UnusedIAMRole']}})["findings"]
+    findings = accessanalyzer.list_findings_v2(analyzerArn=analyzer_arn, filter={'findingType': {'eq': ['UnusedIAMRole']}}).get("findings", [])
     for finding in findings:
-        details = accessanalyzer.get_finding_v2(analyzerArn=analyzer_arn, id=finding["id"])['findingDetails'][0]['unusedIamRoleDetails']
-        if 'lastAccessed' in details:
-            n_days = (datetime.now(pytz.utc) - details['lastAccessed'].replace(tzinfo=timezone.utc)).days
-        else:
-            n_days = -1
+        try:
+            details = accessanalyzer.get_finding_v2(analyzerArn=analyzer_arn, id=finding["id"])['findingDetails'][0]['unusedIamRoleDetails']
+            if 'lastAccessed' in details:
+                n_days = (datetime.now(pytz.utc) - details['lastAccessed'].replace(tzinfo=timezone.utc)).days
+            else:
+                n_days = -1
 
-        UNUSED_ROLES[finding["resource"]] = {
-            "n_days": n_days
-        }
+            UNUSED_ROLES[finding["resource"]] = {
+                "n_days": n_days
+            }
+        except Exception as e:
+            if verbose:
+                print(f"{colored('[-] ', 'red')}Error processing finding {finding['id']} for UnusedIAMRole: {str(e)}")
+            continue
+
 
 # Get all unused logins
 def get_unused_logins(accessanalyzer, analyzer_arn):
     global UNUSED_LOGINS
 
-    findings = accessanalyzer.list_findings_v2(analyzerArn=analyzer_arn, filter={'findingType': {'eq': ['UnusedIAMUserPassword']}})["findings"]
+    findings = accessanalyzer.list_findings_v2(analyzerArn=analyzer_arn, filter={'findingType': {'eq': ['UnusedIAMUserPassword']}}).get("findings", [])
     for finding in findings:
-        details = accessanalyzer.get_finding_v2(analyzerArn=analyzer_arn, id=finding["id"])['findingDetails'][0]['unusedIamUserPasswordDetails']
-        if 'lastAccessed' in details:
-            n_days = (datetime.now(pytz.utc) - details['lastAccessed'].replace(tzinfo=timezone.utc)).days
-        else:
-            n_days = -1
+        try:
+            details = accessanalyzer.get_finding_v2(analyzerArn=analyzer_arn, id=finding["id"])['findingDetails'][0]['unusedIamUserPasswordDetails']
+            if 'lastAccessed' in details:
+                n_days = (datetime.now(pytz.utc) - details['lastAccessed'].replace(tzinfo=timezone.utc)).days
+            else:
+                n_days = -1
 
-        UNUSED_LOGINS[finding["resource"]] = {
-            "n_days": n_days
-        }
+            UNUSED_LOGINS[finding["resource"]] = {
+                "n_days": n_days
+            }
+        except Exception as e:
+            if verbose:
+                print(f"{colored('[-] ', 'red')}Error processing finding {finding['id']} for UnusedIAMUserPassword: {str(e)}")
+            continue
+
 
 # Get all unused access keys
 def get_unused_access_keys(accessanalyzer, analyzer_arn):
     global UNUSED_ACC_KEYS
 
-    findings = accessanalyzer.list_findings_v2(analyzerArn=analyzer_arn, filter={'findingType': {'eq': ['UnusedIAMUserAccessKey']}})["findings"]
+    findings = accessanalyzer.list_findings_v2(analyzerArn=analyzer_arn, filter={'findingType': {'eq': ['UnusedIAMUserAccessKey']}}).get("findings", [])
     for finding in findings:
-        details = accessanalyzer.get_finding_v2(analyzerArn=analyzer_arn, id=finding["id"])['findingDetails'][0]['unusedIamUserAccessKeyDetails']
-        if 'lastAccessed' in details:
-            n_days = (datetime.now(pytz.utc) - details['lastAccessed'].replace(tzinfo=timezone.utc)).days
-        else:
-            n_days = -1
+        try:
+            details = accessanalyzer.get_finding_v2(analyzerArn=analyzer_arn, id=finding["id"])['findingDetails'][0]['unusedIamUserAccessKeyDetails']
+            if 'lastAccessed' in details:
+                n_days = (datetime.now(pytz.utc) - details['lastAccessed'].replace(tzinfo=timezone.utc)).days
+            else:
+                n_days = -1
 
-        UNUSED_ACC_KEYS[finding["resource"]] = {
-            "n_days": n_days
-        }
+            UNUSED_ACC_KEYS[finding["resource"]] = {
+                "n_days": n_days
+            }
+        except Exception as e:
+            if verbose:
+                print(f"{colored('[-] ', 'red')}Error processing finding {finding['id']} for UnusedIAMUserAccessKey: {str(e)}")
+            continue
+
 
 # Get which permissions haven't been used in a long time
-def get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, arn, type_ppal, permissions_dict):
+def get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, arn, type_ppal, permissions_dict, model):
     global UNUSED_PERMS
 
-    findings = accessanalyzer.list_findings_v2(analyzerArn=analyzer_arn, filter={'resource': {'eq': [arn]}, 'findingType': {'eq': ["UnusedPermission"]}})["findings"]
-    for finding in findings:    
-        if permissions_dict["known_privesc_perms_reasons"] != IS_ADMINISTRATOR_REASON:
-            details = accessanalyzer.get_finding_v2(analyzerArn=analyzer_arn, id=finding["id"])['findingDetails']
-            last_perms = {}
+    findings = accessanalyzer.list_findings_v2(analyzerArn=analyzer_arn, filter={'resource': {'eq': [arn]}, 'findingType': {'eq': ["UnusedPermission"]}}).get("findings", [])
+    for finding in findings:
+        try:
+            if permissions_dict["known_privesc_perms_reasons"] != IS_ADMINISTRATOR_REASON:
+                details = accessanalyzer.get_finding_v2(analyzerArn=analyzer_arn, id=finding["id"])['findingDetails']
+                last_perms = {}
 
-            for detail in details:
-                if 'lastAccessed' in detail['unusedPermissionDetails']:
-                    n_days = (datetime.now(pytz.utc) - detail['unusedPermissionDetails']['lastAccessed']).days
-                else:
-                    n_days = -1
+                for detail in details:
+                    if 'lastAccessed' in detail['unusedPermissionDetails']:
+                        n_days = (datetime.now(pytz.utc) - detail['unusedPermissionDetails']['lastAccessed']).days
+                    else:
+                        n_days = -1
 
-                service_namespace = detail['unusedPermissionDetails']['serviceNamespace']
+                    service_namespace = detail['unusedPermissionDetails']['serviceNamespace']
 
-                all_current_perms = permissions_dict["known_privesc_perms"] + permissions_dict["known_sensitive_perms"] + permissions_dict["ai_privesc_perms"] + permissions_dict["ai_sensitive_perms"]
+                    all_current_perms = permissions_dict["known_privesc_perms"] + permissions_dict["known_sensitive_perms"] + permissions_dict["ai_privesc_perms"] + permissions_dict["ai_sensitive_perms"]
 
-                # If the affected namespace is not in the permissions, skip
-                if not any(fnmatch.fnmatch(service_namespace, p.split(":")[0]) for p in all_current_perms):
-                    continue
+                    # If the affected namespace is not in the permissions, skip
+                    if not any(fnmatch.fnmatch(service_namespace, p.split(":")[0]) for p in all_current_perms):
+                        continue
 
-                last_perms[service_namespace] = {
-                    "n_days": n_days
+                    last_perms[service_namespace] = {
+                        "n_days": n_days
+                    }
+
+                    if 'actions' in detail['unusedPermissionDetails']:
+                        for perm in detail['unusedPermissionDetails']['actions']:
+                            if 'lastAccessed' in perm:
+                                n_days = (datetime.now(pytz.utc) - perm['lastAccessed']).days
+                            else:
+                                n_days = -1
+
+                            if not any(fnmatch.fnmatch(f"{service_namespace}:{perm['action']}", p_pattern) for p_pattern in all_current_perms):
+                                continue
+
+                            last_perms[service_namespace][perm["action"]] = {
+                                "n_days": n_days
+                            }
+
+                UNUSED_PERMS[arn] = {
+                    "type": type_ppal,
+                    "n_days": n_days,
+                    "permissions": permissions_dict,
+                    "last_perms": last_perms
                 }
+        except Exception as e:
+            if verbose:
+                print(f"{colored('[-] ', 'red')}Error processing finding {finding['id']} for UnusedPermission: {str(e)}")
+            continue
 
-                if 'actions' in detail['unusedPermissionDetails']:
-                    for perm in detail['unusedPermissionDetails']['actions']:
-                        if 'lastAccessed' in perm:
-                            n_days = (datetime.now(pytz.utc) - perm['lastAccessed']).days
-                        else:
-                            n_days = -1
 
-                        if not any(fnmatch.fnmatch(service_namespace + ":" + perm["action"], p_pattern) for p_pattern in all_current_perms):
-                            continue
-
-                        last_perms[service_namespace][perm["action"]] = {
-                            "n_days": n_days
-                        }
-
-            UNUSED_PERMS[arn] = {
-                "type": type_ppal,
-                "n_days": n_days,
-                "permissions": permissions_dict,
-                "last_perms": last_perms
-            }
-
-def get_external_principals(accessanalyzer, analyzer_arn_exposed):
+def get_external_principals(accessanalyzer, analyzer_arn_exposed, verbose):
     global EXTERNAL_PPALS
 
-    findings = accessanalyzer.list_findings_v2(analyzerArn=analyzer_arn_exposed, filter={'resourceType': {'eq': ['AWS::IAM::Role']}})["findings"]
+    findings = accessanalyzer.list_findings_v2(analyzerArn=analyzer_arn_exposed, filter={'resourceType': {'eq': ['AWS::IAM::Role']}}).get("findings", [])
     for finding in findings:
-        if finding["findingType"] != "ExternalAccess":
-            print(f"{colored('[-] ', 'red')}Unknown external finding type: {finding['findingType']}")
-            return
+        try:
+            if finding["findingType"] != "ExternalAccess":
+                print(f"{colored('[-] ', 'red')}Unknown external finding type: {finding['findingType']}")
+                continue
 
-        arn = finding["resource"]
+            arn = finding["resource"]
 
-        details = accessanalyzer.get_finding_v2(analyzerArn=analyzer_arn_exposed, id=finding["id"])['findingDetails'][0]['externalAccessDetails']
-        EXTERNAL_PPALS[arn] = {
-            "is_public": details["isPublic"],
-            "action": ", ".join(details["action"]),
-            "access": " AND ".join([f'{k}: `{v}`' for k, v in details["principal"].items()]),
-            "conditions": " AND ".join([f'`{k} == {v}`' for k, v in details["condition"].items()])
-        }
+            details = accessanalyzer.get_finding_v2(analyzerArn=analyzer_arn_exposed, id=finding["id"])['findingDetails'][0]['externalAccessDetails']
+            EXTERNAL_PPALS[arn] = {
+                "is_public": details["isPublic"],
+                "action": ", ".join(details["action"]),
+                "access": " AND ".join([f'{k}: `{v}`' for k, v in details["principal"].items()]),
+                "conditions": " AND ".join([f'`{k} == {v}`' for k, v in details["condition"].items()])
+            }
+        except Exception as e:
+            if verbose:
+                print(f"{colored('[-] ', 'red')}Error processing finding {finding['id']} for ExternalAccess: {str(e)}")
+            continue
 
 
-def check_role_permissions(role, api_key, verbose, only_yaml, only_openai, all_resources, all_actions, accessanalyzer, analyzer_arn):
+def check_role_permissions(role, api_key, verbose, only_yaml, only_openai, all_resources, all_actions, accessanalyzer, analyzer_arn, model):
     global SEMAPHORE_THREAD, UNUSED_ROLES
 
     try:
-        role_perms = get_policies("Role", role["RoleName"], role["Arn"], api_key, verbose, only_yaml, only_openai, all_resources, all_actions)
+        role_perms = get_policies("Role", role["RoleName"], role["Arn"], api_key, verbose, only_yaml, only_openai, all_resources, all_actions, model)
         if role_perms and any(v for v in role_perms.values()):
             SEMAPHORE_THREAD.acquire()  # Acquire semaphore before modifying shared resources
             try:
                 if UNUSED_ROLES.get(role["Arn"]):
                     UNUSED_ROLES[role["Arn"]]["permissions"] = role_perms
                 else:
-                    get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, role["Arn"], "role", role_perms)
+                    get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, role["Arn"], "role", role_perms, model)
             finally:
                 SEMAPHORE_THREAD.release()  # Always release semaphore
     except Exception as e:
         print(f"Error processing role {role['RoleName']}: {str(e)}")
 
 
-def main(profiles, api_key, verbose, only_yaml, only_openai, all_resources, print_reasons, all_actions, merge_perms, max_perms_to_print):
-    global UNUSED_GROUPS, UNUSED_LOGINS, UNUSED_ACC_KEYS, UNUSED_PERMS, UNUSED_ROLES, MAX_PERMS_TO_PRINT
+def main(profiles, api_key, verbose, only_yaml, only_openai, all_resources, print_reasons, all_actions, merge_perms, max_perms_to_print, model):
+    global OPENAI_CLIENT, UNUSED_GROUPS, UNUSED_LOGINS, UNUSED_ACC_KEYS, UNUSED_PERMS, UNUSED_ROLES, MAX_PERMS_TO_PRINT
 
     if max_perms_to_print:
         MAX_PERMS_TO_PRINT = max_perms_to_print
@@ -728,7 +771,7 @@ def main(profiles, api_key, verbose, only_yaml, only_openai, all_resources, prin
                     analyzer_arn = analyzers[-1]['arn']
             if not analyzer_arn:
                 print(f"{colored('[-] ', 'red')}No analyzer found.")
-                return
+                continue
 
         # Get exposed assets analyzer
         try:
@@ -743,11 +786,11 @@ def main(profiles, api_key, verbose, only_yaml, only_openai, all_resources, prin
                     analyzer_arn_exposed = analyzers[-1]['arn']
             if not analyzer_arn_exposed:
                 print(f"{colored('[-] ', 'red')}No exposed analyzer found.")
-                return
+                continue
 
         try:
             # Get external and unused principals
-            get_external_principals(accessanalyzer, analyzer_arn_exposed)
+            get_external_principals(accessanalyzer, analyzer_arn_exposed, verbose)
             get_unused_access_keys(accessanalyzer, analyzer_arn)
             get_unused_logins(accessanalyzer, analyzer_arn)
             get_unused_roles(accessanalyzer, analyzer_arn)
@@ -755,19 +798,19 @@ def main(profiles, api_key, verbose, only_yaml, only_openai, all_resources, prin
             # Check permissions for users
             users = iam.list_users()["Users"]
             for user in tqdm(users, desc=f"Checking user permissions in account {account_id} ({profile})"):
-                user_perms = get_policies("User", user["UserName"], user["Arn"], api_key, verbose, only_yaml, only_openai, all_resources, all_actions)
+                user_perms = get_policies("User", user["UserName"], user["Arn"], api_key, verbose, only_yaml, only_openai, all_resources, all_actions, model)
                 if user_perms and any(v for v in user_perms.values()):
                     if UNUSED_LOGINS.get(user["Arn"]):
                         UNUSED_LOGINS[user["Arn"]]["permissions"] = user_perms
                     elif UNUSED_ACC_KEYS.get(user["Arn"]):
                         UNUSED_ACC_KEYS[user["Arn"]]["permissions"] = user_perms
                     else:
-                        get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, user["Arn"], "user", user_perms)
+                        get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, user["Arn"], "user", user_perms, model)
 
             # Check permissions for groups
             groups = iam.list_groups()["Groups"]
             for group in tqdm(groups, desc=f"Checking group permissions in account {account_id} ({profile})"):
-                group_perms = get_policies("Group", group["GroupName"], group["Arn"], api_key, verbose, only_yaml, only_openai, all_resources, all_actions)
+                group_perms = get_policies("Group", group["GroupName"], group["Arn"], api_key, verbose, only_yaml, only_openai, all_resources, all_actions, model)
                 is_empty = is_group_empty(iam, group["GroupName"])
                 if is_empty:
                         UNUSED_GROUPS[group["Arn"]] = {
@@ -777,14 +820,28 @@ def main(profiles, api_key, verbose, only_yaml, only_openai, all_resources, prin
                         }
 
                 if group_perms and any(v for v in group_perms.values()):
-                    get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, group["Arn"], "group", group_perms)
+                    get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, group["Arn"], "group", group_perms, model)
 
             # Check permissions for roles
             roles = iam.list_roles()["Roles"]
             with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
                 # Create tqdm instance with the total count of tasks to be executed
                 progress_bar = tqdm(total=len(roles), desc=f"Checking role permissions in account {account_id} ({profile})")
-                futures = {executor.submit(check_role_permissions, role, api_key, verbose, only_yaml, only_openai, all_resources, all_actions, accessanalyzer, analyzer_arn): role for role in roles}
+                futures = {
+                    executor.submit(
+                        check_role_permissions,
+                        role,
+                        api_key,
+                        verbose,
+                        only_yaml,
+                        only_openai,
+                        all_resources,
+                        all_actions,
+                        accessanalyzer,
+                        analyzer_arn,
+                        model
+                    ): role for role in roles
+                }
                 for future in concurrent.futures.as_completed(futures):
                     # Update progress bar on each task completion
                     progress_bar.update(1)
@@ -820,6 +877,19 @@ if __name__ == "__main__":
     parser.add_argument("--all-actions", default=False, help="Do not filter permissions inside the readOnly policy", action="store_true")
     parser.add_argument("--merge-perms", default=False, help="Print permissions from yaml and OpenAI merged", action="store_true")
     parser.add_argument("--max-perms-to-print", type=int, help="Maximum number of permissions to print per row", default=15)
+    parser.add_argument("-m", "--model", type=str, help="OpenAI model to use (default: gpt-4o)", default="gpt-4o")
     args = parser.parse_args()
 
-    main(args.profiles, args.api_key, args.verbose, args.only_yaml, args.only_openai, args.all_resources, args.print_reasons, args.all_actions, args.merge_perms, int(args.max_perms_to_print))
+    main(
+        args.profiles,
+        args.api_key,
+        args.verbose,
+        args.only_yaml,
+        args.only_openai,
+        args.all_resources,
+        args.print_reasons,
+        args.all_actions,
+        args.merge_perms,
+        int(args.max_perms_to_print),
+        args.model  # Pass the model argument
+    )

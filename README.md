@@ -89,11 +89,11 @@ So the script can create it, query it and finally delete it.
 pip3 install -r requirements.txt
 
 # Help
-usage: aws_iam_review.py [-h] [-k API_KEY] [-v] [--only-yaml] [--only-openai] [--all-resources]
-                         [--print-reasons] [--all-actions] [--merge-perms] profiles [profiles ...]
+usage: aws_iam_review.py [-h] [-k API_KEY] [-v] [--only-yaml] [--only-openai] [--all-resources] [--print-reasons]
+                         [--all-actions] [--merge-perms] [--max-perms-to-print MAX_PERMS_TO_PRINT] [-m MODEL]
+                         profiles [profiles ...]
 
-Find AWS unused sensitive permissions given to principals in the accounts of the specified
-profiles.
+Find AWS unused sensitive permissions given to principals in the accounts of the specified profiles.
 
 positional arguments:
   profiles              One or more AWS profiles to check.
@@ -102,15 +102,17 @@ options:
   -h, --help            show this help message and exit
   -k API_KEY, --api-key API_KEY
                         OpenAI API key. The env variable OPENAI_API_KEY can also be used.
-  -v, --verbose         Get info about why a permission is sensitive or useful for privilege
-                        escalation.
+  -v, --verbose         Get info about why a permission is sensitive or useful for privilege escalation.
   --only-yaml           Only check permissions inside the yaml file
   --only-openai         Only check permissions with OpenAI
   --all-resources       Do not filter only permissions over '*'
-  --print-reasons       Print the reasons why a permission is considered sensitive or useful for
-                        privilege escalation.
+  --print-reasons       Print the reasons why a permission is considered sensitive or useful for privilege escalation.
   --all-actions         Do not filter permissions inside the readOnly policy
   --merge-perms         Print permissions from yaml and OpenAI merged
+  --max-perms-to-print MAX_PERMS_TO_PRINT
+                        Maximum number of permissions to print per row
+  -m MODEL, --model MODEL
+                        OpenAI model to use (default: gpt-4o)
 
 
 # Run the 2 modes with 3 profiles
