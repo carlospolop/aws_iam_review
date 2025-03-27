@@ -4,8 +4,10 @@ import yaml
 import fnmatch
 import argparse
 import tiktoken
+import traceback
 from time import sleep
-import openai  # Correct import
+from openai import OpenAI
+
 import json
 from termcolor import colored
 from datetime import datetime, timezone
@@ -27,6 +29,9 @@ with open("sensitive_permissions.yaml", "r") as file:
 #########################
 #### OPENAI SETTINGS ####
 #########################
+client = None # Initialized in main
+
+
 PERSONALITY = """You are an AWS security expert. You review policies searching for sensitive or privilege escalation permissions.
 A privilege escalation permission or set of permissions, is a permissions that could allow the user to escalate to other AWS principal (user, group or role) in any way. For example, a user with permissions to create a new lambda with a role can escalate to that role. Or a user with permission to add users to other IAM groups can escalate to those groups.
 Sensitive permissions are permissions that would allow a user to access sensitive data or perform sensitive actions. For example, a user with permissions to read secret manager or to modify infrastructure (create, update, delete...) could be considered sensitive permissions.
@@ -328,11 +333,7 @@ def contact(prompt: str, p_info_msg: bool = True, model: str = "gpt-4o") -> str:
     ]
 
     try:
-        response = openai.ChatCompletion.create(
-            model=model,
-            messages=messages,
-            temperature=0
-        )
+        response = client.chat.completions.create(model=model, messages=messages)
     except Exception as e:
         print(f"{colored('[-] Error contacting OpenAI: ', 'yellow')}" + str(e))
         return None
@@ -469,7 +470,7 @@ def check_policy(all_perm, arn, api_key, verbose, only_yaml, only_openai, model)
                 prompt = PROMPT_ASK_PERMISSIONS.replace("__PERMISSIONS__", all_perm_str)
                 response = contact(prompt, model=model)
                 if response:
-                    if response.get("privesc") or response.get("sensitive"):
+                    if response["privesc"] or response["sensitive"]:
                         prompt = PROMPT_CONFIRM_PERMISSIONS.replace("__PERMISSIONS__", all_perm_str).replace("__GIVEN_PERMISSIONS__", json.dumps(response, indent=4))
                         response = contact(prompt, model=model)
                         if "privesc" in response:
@@ -555,7 +556,7 @@ def is_group_empty(iam_client, group_name):
     # List users in the specified IAM group
     try:
         response = iam_client.get_group(GroupName=group_name)
-        users = response['Users']
+        users = response.Users
         if not users:
             return True
         else:
@@ -631,7 +632,7 @@ def get_unused_access_keys(accessanalyzer, analyzer_arn, verbose):
 
 
 # Get which permissions haven't been used in a long time
-def get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, arn, type_ppal, permissions_dict, model):
+def get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, arn, type_ppal, permissions_dict, model, verbose):
     global UNUSED_PERMS
 
     findings = accessanalyzer.list_findings_v2(analyzerArn=analyzer_arn, filter={'resource': {'eq': [arn]}, 'findingType': {'eq': ["UnusedPermission"]}}).get("findings", [])
@@ -716,20 +717,20 @@ def check_role_permissions(role, api_key, verbose, only_yaml, only_openai, all_r
     try:
         role_perms = get_policies("Role", role["RoleName"], role["Arn"], api_key, verbose, only_yaml, only_openai, all_resources, all_actions, model)
         if role_perms and any(v for v in role_perms.values()):
-            SEMAPHORE_THREAD.acquire()  # Acquire semaphore before modifying shared resources
+            SEMAPHORE_THREAD.acquire()  # **Acquire semaphore** before modifying shared resources
             try:
                 if UNUSED_ROLES.get(role["Arn"]):
                     UNUSED_ROLES[role["Arn"]]["permissions"] = role_perms
                 else:
-                    get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, role["Arn"], "role", role_perms, model)
+                    get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, role["Arn"], "role", role_perms, model, verbose)
             finally:
-                SEMAPHORE_THREAD.release()  # Always release semaphore
+                SEMAPHORE_THREAD.release()  # **Always release semaphore**
     except Exception as e:
         print(f"Error processing role {role['RoleName']}: {str(e)}")
-
+        traceback.print_exc()
 
 def main(profiles, api_key, verbose, only_yaml, only_openai, all_resources, print_reasons, all_actions, merge_perms, max_perms_to_print, model):
-    global OPENAI_CLIENT, UNUSED_GROUPS, UNUSED_LOGINS, UNUSED_ACC_KEYS, UNUSED_PERMS, UNUSED_ROLES, MAX_PERMS_TO_PRINT
+    global client, OPENAI_CLIENT, UNUSED_GROUPS, UNUSED_LOGINS, UNUSED_ACC_KEYS, UNUSED_PERMS, UNUSED_ROLES, MAX_PERMS_TO_PRINT
 
     if max_perms_to_print:
         MAX_PERMS_TO_PRINT = max_perms_to_print
@@ -742,7 +743,7 @@ def main(profiles, api_key, verbose, only_yaml, only_openai, all_resources, prin
         if only_openai:
             print(f"{colored('[-] ', 'red')} Only OpenAI was specified without key. Exiting...")
     else:
-        openai.api_key = api_key  # Set the API key directly
+        client = OpenAI(api_key=api_key)
 
     # Get the permissions from the ReadOnly managed policy to remove them from the analysis
     get_readonly_perms(profiles[0])
@@ -799,7 +800,7 @@ def main(profiles, api_key, verbose, only_yaml, only_openai, all_resources, prin
             if not already_created_analyzers:
                 print(f"{colored('[+] ', 'grey')}Analyzers were just created. Waiting 3 minutes for them to analyze the account, don't stop the script...")
                 sleep(60*3)
-            
+
             # Get external and unused principals
             get_external_principals(accessanalyzer, analyzer_arn_exposed, verbose)
             get_unused_access_keys(accessanalyzer, analyzer_arn, verbose)
@@ -816,7 +817,7 @@ def main(profiles, api_key, verbose, only_yaml, only_openai, all_resources, prin
                     elif UNUSED_ACC_KEYS.get(user["Arn"]):
                         UNUSED_ACC_KEYS[user["Arn"]]["permissions"] = user_perms
                     else:
-                        get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, user["Arn"], "user", user_perms, model)
+                        get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, user["Arn"], "user", user_perms, model, verbose)
 
             # Check permissions for groups
             groups = iam.list_groups()["Groups"]
@@ -831,7 +832,7 @@ def main(profiles, api_key, verbose, only_yaml, only_openai, all_resources, prin
                         }
 
                 if group_perms and any(v for v in group_perms.values()):
-                    get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, group["Arn"], "group", group_perms, model)
+                    get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, group["Arn"], "group", group_perms, model, verbose)
 
             # Check permissions for roles
             roles = iam.list_roles()["Roles"]
@@ -888,7 +889,7 @@ if __name__ == "__main__":
     parser.add_argument("--all-actions", default=False, help="Do not filter permissions inside the readOnly policy", action="store_true")
     parser.add_argument("--merge-perms", default=False, help="Print permissions from yaml and OpenAI merged", action="store_true")
     parser.add_argument("--max-perms-to-print", type=int, help="Maximum number of permissions to print per row", default=15)
-    parser.add_argument("-m", "--model", type=str, help="OpenAI model to use (default: gpt-4o)", default="gpt-4o")
+    parser.add_argument("-m", "--model", type=str, help="OpenAI model to use (default: o3-mini)", default="o3-mini")
     args = parser.parse_args()
 
     main(
