@@ -27,7 +27,7 @@ If you know more interesting AWS permissions feel free to send a **PR here and t
 
 ## Parameters
 
-- If you only want the output of 1 or 2 of the methods, you can use the `--only-yaml` or `--only-openai` flags together.
+- You can use the `--only-yaml` flag to only check the permissions inside the YAML file withuot using HackTricksAI.
 - By default, to increase speed, the **permissions included in the readOnly** managed policy are removed before asking the AI (you can disable this behaviour with `--all-actions`).
 - By default the tool will filter out permissions assigned to specific resources (so not to `*`). You can re-enable this by using the `--all-resources` flag.
 
@@ -89,7 +89,7 @@ So the script can create it, query it and finally delete it.
 pip3 install -r requirements.txt
 
 # Help
-usage: aws_iam_review.py [-h] [-k API_KEY] [-v] [--only-yaml] [--only-openai] [--all-resources] [--print-reasons]
+usage: aws_iam_review.py [-h] [-k API_KEY] [-v] [--only-yaml] [--all-resources] [--print-reasons]
                          [--all-actions] [--merge-perms] [--max-perms-to-print MAX_PERMS_TO_PRINT] [-m MODEL]
                          profiles [profiles ...]
 
@@ -100,27 +100,19 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  -k API_KEY, --api-key API_KEY
-                        OpenAI API key. The env variable OPENAI_API_KEY can also be used.
   -v, --verbose         Get info about why a permission is sensitive or useful for privilege escalation.
   --only-yaml           Only check permissions inside the yaml file
-  --only-openai         Only check permissions with OpenAI
   --all-resources       Do not filter only permissions over '*'
   --print-reasons       Print the reasons why a permission is considered sensitive or useful for privilege escalation.
   --all-actions         Do not filter permissions inside the readOnly policy
   --merge-perms         Print permissions from yaml and OpenAI merged
   --max-perms-to-print MAX_PERMS_TO_PRINT
                         Maximum number of permissions to print per row
-  -m MODEL, --model MODEL
-                        OpenAI model to use (default: gpt-4o)
 
 
 # Run the 2 modes with 3 profiles
-python3 aws_iam_review.py profile-name profile-name2 profile-name3 -k <openai_api_key> -v
+python3 aws_iam_review.py profile-name profile-name2 profile-name3 -v
 
 # Run only the yaml mode with 1 profile
 python3 aws_iam_review.py profile-name --only-yaml -v
-
-# Run only the openai mode with 1 profile
-python3 aws_iam_review.py profile-name --only-openai -k <openai_api_key> -v
 ```
