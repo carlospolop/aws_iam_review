@@ -795,7 +795,7 @@ def main(profiles, verbose, only_yaml, all_resources, print_reasons, all_actions
 
         # Get unused analyzer
         created_analyzers = []
-        accessanalyzer = session.client("accessanalyzer", "us-east-2")
+        accessanalyzer = session.client("accessanalyzer", "us-east-1")
         try:
             analyzer_arn = accessanalyzer.create_analyzer(analyzerName="iam_analyzer_unused", type='ACCOUNT_UNUSED_ACCESS', archiveRules=[])["arn"]
             created_analyzers.append("iam_analyzer_unused")
@@ -835,6 +835,7 @@ def main(profiles, verbose, only_yaml, all_resources, print_reasons, all_actions
                 print(f"{colored('[+] ', 'grey')}Analyzers were just created. Waiting 3 minutes for them to analyze the account, don't stop the script...")
                 sleep(60*3)
 
+            print(f"{colored('[+] ', 'green')}Fetching findings from analyzers...")
             # Get external and unused principals
             get_external_principals(accessanalyzer, analyzer_arn_exposed, verbose)
             get_unused_access_keys(accessanalyzer, analyzer_arn, verbose)
