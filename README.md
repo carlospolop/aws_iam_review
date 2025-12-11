@@ -90,8 +90,8 @@ pip3 install -r requirements.txt
 
 # Help
 usage: aws_iam_review.py [-h] [-k API_KEY] [-v] [--only-yaml] [--all-resources] [--print-reasons]
-                         [--all-actions] [--merge-perms] [--max-perms-to-print MAX_PERMS_TO_PRINT] [-m MODEL]
-                         profiles [profiles ...]
+                         [--all-actions] [--merge-perms] [--max-perms-to-print MAX_PERMS_TO_PRINT]
+                         [--min-unused-days MIN_UNUSED_DAYS] [--json] [-m MODEL] profiles [profiles ...]
 
 Find AWS unused sensitive permissions given to principals in the accounts of the specified profiles.
 
@@ -100,6 +100,7 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
+  -k API_KEY            HackTricks AI API key for permission analysis
   -v, --verbose         Get info about why a permission is sensitive or useful for privilege escalation.
   --only-yaml           Only check permissions inside the yaml file
   --all-resources       Do not filter only permissions over '*'
@@ -107,7 +108,11 @@ options:
   --all-actions         Do not filter permissions inside the readOnly policy
   --merge-perms         Print permissions from yaml and OpenAI merged
   --max-perms-to-print MAX_PERMS_TO_PRINT
-                        Maximum number of permissions to print per row
+                        Maximum number of permissions to print per row (default: 15)
+  --min-unused-days MIN_UNUSED_DAYS
+                        Minimum days a permission must be unused to be flagged (default: 30)
+  --json                Output results in JSON format (includes all data unfiltered)
+  -m MODEL              AI model to use for permission analysis
 
 
 # Run the 2 modes with 3 profiles
@@ -115,4 +120,16 @@ python3 aws_iam_review.py profile-name profile-name2 profile-name3 -v
 
 # Run only the yaml mode with 1 profile
 python3 aws_iam_review.py profile-name --only-yaml -v
+
+# Custom unused threshold (90 days)
+python3 aws_iam_review.py profile-name --min-unused-days 90
+
+# JSON output with all data
+python3 aws_iam_review.py profile-name --json > results.json
 ```
+
+## Output Modes
+
+**Console Output** (default): Color-coded, filtered view showing the most critical findings. Applies `--min-unused-days` filtering and limits display to 4 services and 3 permissions per service for readability.
+
+**JSON Output** (`--json`): Complete unfiltered data including all services, permissions, and metadata. Ignores display limits and filtering thresholds. Use for automated processing or comprehensive analysis.
