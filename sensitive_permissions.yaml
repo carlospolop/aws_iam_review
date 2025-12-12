@@ -1,9 +1,9 @@
 
 apigateway:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-apigateway-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-api-gateway-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-api-gateway-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-apigateway-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-api-gateway-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-api-gateway-persistence/index.html
   
   sensitive:
     - apigateway:POST
@@ -21,15 +21,15 @@ apigateway:
 
 chime:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-chime-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-chime-privesc/index.html
   
   sensitive:
     - chime:CreateApiKey
 
 codebuild:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-codebuild-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-codebuild-post-exploitation
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-codebuild-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-codebuild-post-exploitation/index.html
 
   privesc:
     - iam:PassRole, codebuild:CreateProject
@@ -46,7 +46,7 @@ codebuild:
 
 codepipeline:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-codepipeline-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-codepipeline-privesc/index.html
 
   pivesc:
     - iam:PassRole, codepipeline:CreatePipeline, codebuild:CreateProject, codepipeline:StartPipelineExecution
@@ -58,7 +58,7 @@ codepipeline:
 
 codestar:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-codestar-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-codestar-privesc/index.html
 
   privesc:
     - iam:PassRole, codestar:CreateProject
@@ -67,8 +67,8 @@ codestar:
 
 cloudformation:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-cloudformation-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-cloudformation-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-cloudformation-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-cloudformation-persistence/index.html
   
   privesc:
     - iam:PassRole, cloudformation:CreateStack
@@ -91,30 +91,30 @@ cloudformation:
 
 cognito:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-cognito-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-cognito-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-cognito-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-cognito-persistence/index.html
   
   # Note: This service is now split into cognito-identity and cognito-idp
 
 datapipeline:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-datapipeline-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-datapipeline-privesc/index.html
   
   privesc:
     - iam:PassRole, datapipeline:CreatePipeline, datapipeline:PutPipelineDefinition, datapipeline:ActivatePipeline
 
 ds:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-directory-services-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-directory-services-privesc/index.html
   
   sensitive:
     - ds:ResetUserPassword
 
 dynamodb:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-dynamodb-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-dynamodb-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-dynamodb-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-dynamodb-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-dynamodb-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-dynamodb-persistence/index.html
   
   privesc:
     - dynamodb:PutResourcePolicy
@@ -140,7 +140,7 @@ dynamodb:
 
 ebs:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ebs-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ebs-privesc/index.html
   
   sensitive:
     - ebs:ListSnapshotBlocks, ebs:GetSnapshotBlock, ec2:DescribeSnapshots
@@ -148,9 +148,9 @@ ebs:
 
 ec2:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ec2-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-ec2-ebs-ssm-and-vpc-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-ec2-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ec2-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-ec2-ebs-ssm-and-vpc-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-ec2-persistence/index.html
   
   privesc:
     - iam:PassRole, ec2:RunInstances
@@ -182,9 +182,9 @@ ec2:
 
 ecr:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ecr-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-ecr-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-ecr-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ecr-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-ecr-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-ecr-persistence/index.html
   
   sensitive:
     - ecr:GetAuthorizationToken, ecr:BatchGetImage
@@ -203,9 +203,9 @@ ecr:
 
 ecs:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ecs-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-ecs-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-ecs-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ecs-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-ecs-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-ecs-persistence/index.html
   
   privesc:
     - iam:PassRole, ecs:RegisterTaskDefinition, ecs:RunTask
@@ -228,17 +228,17 @@ ecs:
 
 efs:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-efs-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-efs-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-efs-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-efs-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-efs-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-efs-persistence/index.html
   
   # Note: This service uses elasticfilesystem prefix
 
 elasticbeanstalk:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-elastic-beanstalk-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-elastic-beanstalk-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-elastic-beanstalk-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-elastic-beanstalk-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-elastic-beanstalk-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-elastic-beanstalk-persistence/index.html
   
   privesc:
     - elasticbeanstalk:CreateApplication, elasticbeanstalk:CreateEnvironment, elasticbeanstalk:CreateApplicationVersion, elasticbeanstalk:UpdateEnvironment, iam:PassRole
@@ -254,20 +254,20 @@ elasticbeanstalk:
 
 emr:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-emr-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-emr-privesc/index.html
   
   # Note: This service uses elasticmapreduce prefix
     
 gamelift:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-gamelift
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-gamelift/index.html
   
   sensitive:
     - gamelift:RequestUploadCredentials
 
 glue:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-glue-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-glue-privesc/index.html
   
   privesc:
     - iam:PassRole, glue:CreateDevEndpoint
@@ -280,9 +280,9 @@ glue:
 
 iam:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-iam-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-iam-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-iam-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-iam-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-iam-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-iam-persistence/index.html
   
   privesc:
     - iam:CreatePolicyVersion
@@ -325,9 +325,9 @@ iam:
 
 kms:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-kms-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-kms-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-kms-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-kms-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-kms-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-kms-persistence/index.html
   
   privesc:
     - kms:PutKeyPolicy
@@ -346,9 +346,9 @@ kms:
 
 lambda:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-lambda-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-lambda-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-lambda-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-lambda-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-lambda-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-lambda-persistence/index.html
   
   privesc:
     - iam:PassRole, lambda:CreateFunction, lambda:InvokeFunction
@@ -373,9 +373,9 @@ lambda:
 
 lightsail:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-lightsail-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-lightsail-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-lightsail-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-lightsail-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-lightsail-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-lightsail-persistence/index.html
   
   sensitive:
     - lightsail:DownloadDefaultKeyPair
@@ -393,7 +393,7 @@ lightsail:
 
 mediapackage:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-mediapackage-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-mediapackage-privesc/index.html
   
   sensitive:
     - mediapackage:RotateChannelCredentials
@@ -401,7 +401,7 @@ mediapackage:
 
 mq:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-mq-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-mq-privesc/index.html
   
   sensitive:
     - mq:ListBrokers, mq:CreateUser
@@ -410,16 +410,16 @@ mq:
 
 msk:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-msk-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-msk-privesc/index.html
   
   sensitive:
     - msk:ListClusters, msk:UpdateSecurity
 
 rds:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-rds-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-rds-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-rds-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-rds-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-rds-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-rds-persistence/index.html
   
   sensitive:
     - rds:ModifyDBInstance
@@ -439,7 +439,7 @@ rds:
 
 redshift:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-redshift-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-redshift-privesc/index.html
   
   sensitive:
     - redshift:DescribeClusters, redshift:GetClusterCredentials
@@ -448,15 +448,15 @@ redshift:
 
 route53:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/route53-createhostedzone-route53-changeresourcerecordsets-acm-pca-issuecertificate-acm-pca-getcer
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/route53-createhostedzone-route53-changeresourcerecordsets-acm-pca-issuecertificate-acm-pca-getcer/index.html
   sensitive:
     - route53:CreateHostedZone, route53:ChangeResourceRecordSets, acm-pca:IssueCertificate, acm-pca:GetCertificate
 
 sns:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-sns-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-sns-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-sns-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-sns-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-sns-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-sns-persistence/index.html
   
   sensitive:
     - sns:DeleteTopic
@@ -471,9 +471,9 @@ sns:
 
 sqs:
   urls: 
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-sqs-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-sqs-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-sqs-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-sqs-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-sqs-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-sqs-persistence/index.html
   
   sensitive:
     - sqs:AddPermission
@@ -491,7 +491,7 @@ sqs:
 
 sso:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-sso-and-identitystore-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-sso-and-identitystore-privesc/index.html
   
   privesc:
     - identitystore:CreateGroupMembership
@@ -502,9 +502,9 @@ sso:
 
 s3:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-s3-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-s3-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-s3-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-s3-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-s3-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-s3-persistence/index.html
   
   sensitive:
     - s3:PutObject
@@ -518,9 +518,9 @@ s3:
 
 sagemaker:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-sagemaker-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-sagemaker-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-sagemaker-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-sagemaker-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-sagemaker-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-sagemaker-persistence/index.html
   
   privesc:
     - iam:PassRole, sagemaker:CreateNotebookInstance, sagemaker:CreatePresignedNotebookInstanceUrl
@@ -531,9 +531,9 @@ sagemaker:
 
 secretsmanager:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-secrets-manager-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-secrets-manager-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-secrets-manager-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-secrets-manager-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-secrets-manager-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-secrets-manager-persistence/index.html
   
   sensitive:
     - secretsmanager:GetSecretValue
@@ -545,9 +545,9 @@ secretsmanager:
 
 ssm:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ssm-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-ec2-ebs-ssm-and-vpc-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-ssm-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ssm-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-ec2-ebs-ssm-and-vpc-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-ssm-persistence/index.html
   
   privesc:
     - ssm:SendCommand
@@ -565,9 +565,9 @@ ssm:
 
 sts:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-sts-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-sts-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-sts-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-sts-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-sts-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-sts-persistence/index.html
   
   privesc:
     - sts:AssumeRole
@@ -580,7 +580,7 @@ sts:
 
 workdocs:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-workdocs-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-workdocs-privesc/index.html
   
   sensitive:
     - workdocs:CreateUser
@@ -590,7 +590,7 @@ workdocs:
 
 acm-pca:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/route53-createhostedzone-route53-changeresourcerecordsets-acm-pca-issuecertificate-acm-pca-getcer
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/route53-createhostedzone-route53-changeresourcerecordsets-acm-pca-issuecertificate-acm-pca-getcer/index.html
   
   sensitive:
     - acm-pca:IssueCertificate
@@ -599,14 +599,14 @@ acm-pca:
 
 apprunner:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-apprunner-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-apprunner-privesc/index.html
   
   privesc:
     - iam:PassRole, apprunner:CreateService
 
 autoscaling:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ec2-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ec2-privesc/index.html
   
   privesc:
     - autoscaling:CreateLaunchConfiguration, autoscaling:CreateAutoScalingGroup, iam:PassRole
@@ -618,7 +618,7 @@ autoscaling:
 
 cloud9:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-emr-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-emr-privesc/index.html
   
   sensitive:
     - cloud9:DescribeEnvironment
@@ -626,8 +626,8 @@ cloud9:
 
 cloudfront:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-cloudfront-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-cloudfront-post-exploitation
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-cloudfront-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-cloudfront-post-exploitation/index.html
   
   privesc:
     - cloudfront:CreateFunction, cloudfront:PublishFunction, cloudfront:AssociateFunction, cloudfront:GetFunction
@@ -642,7 +642,7 @@ cloudfront:
 
 cloudwatch:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/index.html
   
   sensitive:
     - cloudwatch:DescribeAlarms
@@ -651,21 +651,21 @@ cloudwatch:
 
 codecommit:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-codebuild-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-codebuild-privesc/index.html
   
   sensitive:
     - codecommit:ListRepositories
 
 codestar-connections:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-codepipeline-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-codepipeline-privesc/index.html
   
   sensitive:
     - codestar-connections:UseConnection
 
 cognito-identity:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-cognito-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-cognito-privesc/index.html
   
   privesc:
     - cognito-identity:SetIdentityPoolRoles, iam:PassRole
@@ -673,7 +673,7 @@ cognito-identity:
 
 cognito-idp:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-cognito-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-cognito-privesc/index.html
   
   privesc:
     - cognito-idp:AdminAddUserToGroup
@@ -701,22 +701,22 @@ cognito-idp:
 
 datazone:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-emr-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-emr-privesc/index.html
   
   sensitive:
     - datazone:CreateUserProfile
 
 dlm:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-dlm-post-exploitation
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-dlm-post-exploitation/index.html
   
   sensitive:
     - dlm:CreateLifeCyclePolicy
 
 ec2-instance-connect:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ec2-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-ec2-ebs-ssm-and-vpc-post-exploitation
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-ec2-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-ec2-ebs-ssm-and-vpc-post-exploitation/index.html
   
   privesc:
     - ec2-instance-connect:SendSSHPublicKey
@@ -727,7 +727,7 @@ ec2-instance-connect:
 
 ecr-public:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-ecr-post-exploitation
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-ecr-post-exploitation/index.html
   
   sensitive:
     - ecr-public:BatchDeleteImage
@@ -738,15 +738,15 @@ ecr-public:
 
 eks:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-eks-post-exploitation
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-eks-post-exploitation/index.html
   
   sensitive:
     - eks:AccessKubernetesApi
 
 elasticfilesystem:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-efs-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-efs-post-exploitation
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-efs-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-efs-post-exploitation/index.html
   
   sensitive:
     - elasticfilesystem:ClientMount
@@ -764,7 +764,7 @@ elasticfilesystem:
 
 elasticmapreduce:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-emr-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-emr-privesc/index.html
   
   privesc:
     - iam:PassRole, elasticmapreduce:RunJobFlow
@@ -777,7 +777,7 @@ elasticmapreduce:
 
 events:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-lambda-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-lambda-persistence/index.html
   
   sensitive:
     - events:PutRule
@@ -786,7 +786,7 @@ events:
 
 firehose:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-sns-post-exploitation
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-sns-post-exploitation/index.html
   
   sensitive:
     - firehose:PutRecord
@@ -794,14 +794,14 @@ firehose:
 
 identitystore:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-sso-and-identitystore-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-sso-and-identitystore-privesc/index.html
   
   privesc:
     - identitystore:CreateGroupMembership
 
 logs:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-lambda-post-exploitation
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-lambda-post-exploitation/index.html
   
   sensitive:
     - logs:CreateLogGroup
@@ -811,7 +811,7 @@ logs:
 
 rds-data:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-rds-post-exploitation
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-rds-post-exploitation/index.html
   
   sensitive:
     - rds-data:ExecuteStatement
@@ -819,14 +819,14 @@ rds-data:
 
 redshift-data:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-redshift-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-redshift-privesc/index.html
   
   sensitive:
     - redshift-data:ExecuteStatement
 
 scheduler:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/eventbridgescheduler-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/eventbridgescheduler-privesc/index.html
   
   privesc:
     - scheduler:CreateSchedule, iam:PassRole
@@ -834,7 +834,7 @@ scheduler:
 
 ses:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-ses-post-exploitation
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-ses-post-exploitation/index.html
   
   sensitive:
     - ses:SendEmail
@@ -845,9 +845,9 @@ ses:
 
 states:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-stepfunctions-privesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-stepfunctions-post-exploitation
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-persistence/aws-step-functions-persistence
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-stepfunctions-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-stepfunctions-post-exploitation/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-persistence/aws-step-functions-persistence/index.html
   
   privesc:
     - iam:PassRole, states:CreateStateMachine
@@ -863,7 +863,7 @@ states:
 
 vpn:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-vpn-post-exploitation
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-vpn-post-exploitation/index.html
   
   sensitive:
     - ec2:CreateVpnConnection
@@ -872,8 +872,8 @@ vpn:
 
 organizations:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-organizations-prinvesc
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-organizations-post-exploitation
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-organizations-privesc/index.html
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-organizations-post-exploitation/index.html
   
   sensitive:
     - organizations:CreateAccount
@@ -885,21 +885,21 @@ organizations:
 
 macie:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation/aws-macie-privesc
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-privilege-escalation/aws-macie-privesc/index.html
   
   privesc:
     - macie2:CreateClassificationJob
 
 mwaa:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-mwaa-post-exploitation
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-mwaa-post-exploitation/index.html
   
   sensitive:
     - airflow:CreateWebLoginToken
 
 controltower:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-control-tower-post-exploitation
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-control-tower-post-exploitation/index.html
   
   sensitive:
     - controltower:CreateManagedAccount
@@ -907,7 +907,7 @@ controltower:
 
 bedrock:
   urls:
-    - https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-post-exploitation/aws-bedrock-post-exploitation
+    - https://cloud.hacktricks.wiki/pentesting-cloud/aws-security/aws-post-exploitation/aws-bedrock-post-exploitation/index.html
   
   sensitive:
     - bedrock:InvokeModel
