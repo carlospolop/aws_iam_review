@@ -201,12 +201,13 @@ def main() -> int:
     gcp_new = sorted(gcp_dataset - set(gcp_existing.keys()))
     azure_new = sorted(azure_dataset - set(azure_existing.keys()))
 
+    unknown_fallback_level = "high"
     newly_added = {"aws": 0, "gcp": 0, "azure": 0}
     for perm in aws_new:
         level = _classify_new("aws", perm, empty_hints)
         if level is None:
             unclassified["aws"].append(perm)
-            continue
+            level = unknown_fallback_level
         aws_categories[level].append(perm)
         newly_added["aws"] += 1
 
@@ -214,7 +215,7 @@ def main() -> int:
         level = _classify_new("gcp", perm, empty_hints)
         if level is None:
             unclassified["gcp"].append(perm)
-            continue
+            level = unknown_fallback_level
         gcp_categories[level].append(perm)
         newly_added["gcp"] += 1
 
@@ -222,7 +223,7 @@ def main() -> int:
         level = _classify_new("azure", perm, empty_hints)
         if level is None:
             unclassified["azure"].append(perm)
-            continue
+            level = unknown_fallback_level
         azure_categories[level].append(perm)
         newly_added["azure"] += 1
 
@@ -235,7 +236,7 @@ def main() -> int:
     print(f"AWS new permissions: {len(aws_new)} (classified: {newly_added['aws']}, unclassified: {len(aws_new) - newly_added['aws']})")
     print(f"GCP new permissions: {len(gcp_new)} (classified: {newly_added['gcp']}, unclassified: {len(gcp_new) - newly_added['gcp']})")
     print(
-        f\"Azure new permissions: {len(azure_new)} (classified: {newly_added['azure']}, unclassified: {len(azure_new) - newly_added['azure']})\"
+        f"Azure new permissions: {len(azure_new)} (classified: {newly_added['azure']}, unclassified: {len(azure_new) - newly_added['azure']})"
     )
 
     return 0

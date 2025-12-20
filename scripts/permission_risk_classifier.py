@@ -199,20 +199,32 @@ def load_azure_permissions_from_provider_operations(path: str) -> set[str]:
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
+    # Dataset format: a list of provider objects. The granular permissions are in the nested
+    # `operations` arrays (each element has a `name` like `Microsoft.X/.../read|write|delete|action`).
     permissions: set[str] = set()
 
-    def walk(obj) -> None:
-        if isinstance(obj, dict):
-            name = obj.get("name")
-            if isinstance(name, str) and name.strip():
+    def extract_from_operations_list(ops) -> None:
+        if not isinstance(ops, list):
+            return
+        for op in ops:
+            if not isinstance(op, dict):
+                continue
+            name = op.get("name")
+            if isinstance(name, str) and name.strip() and "/" in name:
                 permissions.add(name.strip())
-            for v in obj.values():
-                walk(v)
-        elif isinstance(obj, list):
-            for item in obj:
-                walk(item)
 
-    walk(data)
+    if not isinstance(data, list):
+        raise ValueError("Unexpected Azure dataset format: expected a top-level list")
+
+    for provider in data:
+        if not isinstance(provider, dict):
+            continue
+        extract_from_operations_list(provider.get("operations"))
+        for rt in provider.get("resourceTypes", []) or []:
+            if not isinstance(rt, dict):
+                continue
+            extract_from_operations_list(rt.get("operations"))
+
     return permissions
 
 

@@ -1,8 +1,20 @@
-# AWS IAM Review
+# Blue Cloud PEASS
+
+Blue Cloud PEASS helps blue teams and auditors quickly identify risky IAM permissions and access patterns across cloud providers.
+
+This repo currently includes:
+- `aws_iam_review.py`: AWS IAM review (unused permissions + risky access)
+- `gcp_iam_review.py`: GCP IAM review (Recommender + Cloud Asset Inventory)
+- Weekly, auto-updated permission risk catalogs:
+  - `aws_permissions_cat.yaml`
+  - `gcp_permissions_cat.yaml`
+  - `azure_permissions_cat.yaml`
 
 <p align="center">
   <img src="logo.webp" alt="AWS IAM Review Logo" width="50%"/>
 </p>
+
+## AWS (`aws_iam_review.py`)
 
 This script:
 
@@ -17,11 +29,9 @@ Dangerous permissions are divided in 2 categories:
 - Privilege escalation permissions are permissions that would allow a principal in AWS to obtain more permissions (by aumenting his own permissions or by pivoting to other principals for example).
 - Sensitive permissions are permissions that could allow an attacker to perform actions that could be harmful for the organization (like deleting resources, reading sensitive data, etc).
 
-Moreover, this tool offer **2 ways to find dangerous permissions**:
-- Using a **YAML file with sensitive and privescs permissions predefined** (based on https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation and https://cloud.hacktricks.xyz/pentesting-cloud/aws-security/aws-privilege-escalation).
-- Using **OpenAI to ask** if a set of permissions contains sensitive or a privesc permissions. **You need to provide your own OpenAI api key**.
+Moreover, this tool can optionally use an AI backend to help classify permissions (you must provide your own API key when enabled).
 
-Note that this **tool only sends permissions names to OpenAI, no private information is shared**.
+Note that this **tool only sends permission names to the AI backend**, no private data is intended to be shared.
 
 If you know more interesting AWS permissions feel free to send a **PR here and to [HackTricks Cloud](https://github.com/carlospolop/hacktricks-cloud)**
 
@@ -136,19 +146,18 @@ python3 aws_iam_review.py profile-name --json > results.json
 
 ---
 
-# GCP IAM Review (Recommender + Cloud Asset)
+## GCP (`gcp_iam_review.py`) (Recommender + Cloud Asset)
 
 The repository also includes `gcp_iam_review.py`, which uses:
 - **Recommender API** (`google.iam.policy.Recommender`) to suggest IAM bindings/roles that can be removed or reduced based on observed usage.
 - **Cloud Asset Inventory** to highlight risky IAM trust patterns (public access, Workload Identity Federation trusts, external domains).
-- **HackTricks AI** (optional) to classify effective permissions (expanded from bound roles) into privilege-escalation vs sensitive permissions.
+- Optional AI classification to categorize effective permissions (expanded from bound roles) into privilege-escalation vs sensitive permissions.
 
 It authenticates via:
 - `--sa-json` (service account JSON key), or
 - your current `gcloud` login, or
 - ADC/metadata credentials (GCE/GKE).
 When using `--allowed-domain`, the script always includes the current `gcloud` account domain in the allowlist by default.
-YAML-based classification requires a `gcp_sensitive_permissions.yaml` file next to `gcp_iam_review.py`.
 
 ## Needed Permissions (GCP)
 
@@ -184,3 +193,14 @@ python3 gcp_iam_review.py --project <PROJECT_ID> --allowed-domain example.com --
 # Disable AI classification (faster, no external call)
 python3 gcp_iam_review.py --project <PROJECT_ID> --no-ai
 ```
+
+---
+
+## Permission Catalogs (Weekly Updates)
+
+This repo maintains provider-wide granular permission risk catalogs in:
+- `aws_permissions_cat.yaml`
+- `gcp_permissions_cat.yaml`
+- `azure_permissions_cat.yaml`
+
+They are updated automatically by the GitHub Action in `.github/workflows/weekly-permission-categories.yml`.
