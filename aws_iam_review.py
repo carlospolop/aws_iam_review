@@ -3,11 +3,8 @@ import boto3
 import yaml
 import fnmatch
 import argparse
-import traceback
 import sys
 import signal
-import hashlib
-from time import sleep
 
 import json
 from termcolor import colored
@@ -16,10 +13,10 @@ import pytz
 from tqdm import tqdm
 import threading
 import concurrent.futures
-import requests
 import time
 from botocore.config import Config
 from botocore.exceptions import ClientError, NoCredentialsError
+
 
 
 #########################
@@ -28,30 +25,23 @@ from botocore.exceptions import ClientError, NoCredentialsError
 
 # Load YAML data with validation
 try:
-    if not os.path.exists("sensitive_permissions.yaml"):
-        print(f"{colored('[-] ', 'red')}Error: sensitive_permissions.yaml file not found.")
+    if not os.path.exists("aws_permissions_cat.yaml"):
+        print(f"{colored('[-] ', 'red')}Error: aws_permissions_cat.yaml file not found.")
         sys.exit(1)
-    with open("sensitive_permissions.yaml", "r") as file:
-        PERMISSIONS_DATA = yaml.safe_load(file)
-    if not PERMISSIONS_DATA or not isinstance(PERMISSIONS_DATA, dict):
-        print(f"{colored('[-] ', 'red')}Error: sensitive_permissions.yaml is empty or invalid.")
+    with open("aws_permissions_cat.yaml", "r") as file:
+        PERMISSIONS_CAT_DATA = yaml.safe_load(file)
+    if not PERMISSIONS_CAT_DATA or not isinstance(PERMISSIONS_CAT_DATA, dict):
+        print(f"{colored('[-] ', 'red')}Error: aws_permissions_cat.yaml is empty or invalid.")
         sys.exit(1)
+                
 except yaml.YAMLError as e:
     print(f"{colored('[-] ', 'red')}Error parsing YAML file: {e}")
     sys.exit(1)
 
 
 #########################
-#### HACKTRICKS.AI   ####
+#### CACHE & CONFIG  ####
 #########################
-# Global rate limit (shared across threads): 5 req / 60s
-HACKTRICKS_AI_ENDPOINT = "https://www.hacktricks.ai/api/ht-api"
-_RATE_LIMIT_LOCK = threading.Lock()
-_REQUEST_TIMESTAMPS = []  # epoch seconds of requests
-
-# Caching infrastructure
-_AI_CACHE = {}  # Cache for HackTricks AI responses
-_AI_CACHE_LOCK = threading.Lock()
 _POLICY_CACHE = {}  # Cache for AWS policy documents
 _POLICY_CACHE_LOCK = threading.Lock()
 READONLY_PERMS_CACHE = None  # Global cache for ReadOnly permissions
@@ -68,68 +58,7 @@ _ALL_ANALYZERS_LOCK = threading.Lock()
 
 MIN_UNUSED_DAYS = 30
 
-
-PERSONALITY = """You are an AWS security expert. You review policies searching for sensitive or privilege escalation permissions.
-A privilege escalation permission or set of permissions, is a permissions that could allow the user to escalate to other AWS principal (user, group or role) in any way. For example, a user with permissions to create a new lambda with a role can escalate to that role. Or a user with permission to add users to other IAM groups can escalate to those groups.
-Sensitive permissions are permissions that would allow a user to access sensitive data or perform sensitive actions. For example, a user with permissions to read secret manager or to modify infrastructure (create, update, delete...) could be considered sensitive permissions.
-Your answer is always a valid JSON without any other thing (it should start with '{' and end with '}')."""
-
-FINAL_CLARIFICATIONS = """Your response must be a valid JSON with the format specified before (it should start with '{' and end with '}')."""
-
-PROMPT_ASK_PERMISSIONS = """An AWS principal has the permissions: __PERMISSIONS__
-
-Check for privilege escalation and sensitive permissions and respond with a valid JSON with the following format:
-{
-    "privesc": ["permission1", "permission2"],
-    "privesc_reasons": "Reason why it's possible to escalate privileges to other roles, users, groups... with these permissions",
-    "sensitive": ["permission3", "permission4"],
-    "sensitive_reasons": "Reason why the permissions are considered sensitive"
-}
-
-Do not return permissions that allow only with low probability the user to read sensitive information.
-Give only the permissions that will allow the user to perform sensitive actions or that higly probable will allow the user to access sensitive information (like read bucket, secrets, code...).
-Do not return as reason of sensitive permissions that there wasn't privilege escalation permissions.
-
-If there aren't privilege escalation or sensitive permissions return an empty array for the permissions and an empty string for the reasons:
-{
-    "privesc": [],
-    "privesc_reasons": "",
-    "sensitive": [],
-    "sensitive_reasons": ""
-}
-"""
-
-PROMPT_CONFIRM_PERMISSIONS = """An AWS principal has the permissions: __PERMISSIONS__
-
-You have previously been asked for privilege escalation and sensitive permissions.
-Privilege escalation permissions allow to escalate to other AWS principal (user, group or role) or increase the current permissions.
-Sensitive permissions allow to access sensitive data or perform sensitive actions (create, update, delete...).
-
-From the previous permissions you responded that these are the privesc and sensitive ones:
-
-__GIVEN_PERMISSIONS__
-
-Please, re-evaluate the response and respond with a valid JSON with the following format with the privesc and sensitive permissions:
-
-{
-    "privesc": ["permission1", "permission2"],
-    "privesc_reasons": "Reason why it's possible to escalate privileges to other roles, users, groups... with these permissions",
-    "sensitive": ["permission3", "permission4"],
-    "sensitive_reasons": "Reason why the permissions are considered sensitive"
-}
-
-If there aren't privilege escalation or sensitive permissions return an empty array for the permissions and an empty string for the reasons:
-{
-    "privesc": [],
-    "privesc_reasons": "",
-    "sensitive": [],
-    "sensitive_reasons": ""
-}
-"""
-
-
 MAX_PERMS_TO_PRINT = 15
-IS_ADMINISTRATOR_REASON = "Is administrator"
 
 def signal_handler(signum, frame):
     """Handle Ctrl+C gracefully by cleaning up all analyzers across all accounts"""
@@ -150,52 +79,33 @@ def signal_handler(signum, frame):
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
-READONLY_PERMS = []
 
-UNUSED_ROLES = {}
-UNUSED_LOGINS = {}
-UNUSED_ACC_KEYS = {}
-UNUSED_PERMS = {}
-UNUSED_GROUPS = {}
-EXTERNAL_PPALS = {}
-SEMAPHORE_THREAD = threading.Semaphore()
-
-
-def print_permissions(ppal_permissions, print_reasons, merge_perms):
-    if merge_perms:
-        ppal_permissions["known_privesc_perms"] = list(set(ppal_permissions["known_privesc_perms"] + ppal_permissions["ai_privesc_perms"]))
-        ppal_permissions["known_sensitive_perms"] = list(set(ppal_permissions["known_sensitive_perms"] + ppal_permissions["ai_sensitive_perms"]))
-        ppal_permissions['known_privesc_perms_reasons'] = ppal_permissions['known_privesc_perms_reasons'] + ". " + ppal_permissions['ai_privesc_perms_reasons']
-        ppal_permissions['known_sensitive_perms_reasons'] = ppal_permissions['known_sensitive_perms_reasons'] + ". " + ppal_permissions['ai_sensitive_perms_reasons']
-
-    if ppal_permissions["known_privesc_perms"]:
-        more_than_str = " and more..." if len(ppal_permissions["known_privesc_perms"]) > MAX_PERMS_TO_PRINT else ""
-        print(f"    - {colored('Privilege escalation', 'green')}: {', '.join(f'`{p}`' for p in ppal_permissions['known_privesc_perms'][:MAX_PERMS_TO_PRINT])}{more_than_str}")
-        if print_reasons:
-            print(f"    - Reasons: {ppal_permissions['known_privesc_perms_reasons']}")
-
-    if ppal_permissions["known_sensitive_perms"]:
-        more_than_str = " and more..." if len(ppal_permissions["known_sensitive_perms"]) > MAX_PERMS_TO_PRINT else ""
-        print(f"    - {colored('Sensitive', 'blue')}: {', '.join(f'`{p}`' for p in ppal_permissions['known_sensitive_perms'][:MAX_PERMS_TO_PRINT])}{more_than_str}")
-        if print_reasons:
-            print(f"    - Reasons: {ppal_permissions['known_sensitive_perms_reasons']}")
-
-    unknown_ai_permissions = [p for p in ppal_permissions["ai_privesc_perms"] if p not in ppal_permissions["known_privesc_perms"]]
-    if unknown_ai_permissions:
-        more_than_str = " and more..." if len(ppal_permissions["ai_privesc_perms"]) > MAX_PERMS_TO_PRINT else ""
-        print(f"    - {colored('AI Privilege escalation', 'green')}: {', '.join(f'`{p}`' for p in unknown_ai_permissions[:MAX_PERMS_TO_PRINT])}{more_than_str}")
-        if print_reasons:
-            print(f"    - Reasons: {ppal_permissions['ai_privesc_perms_reasons']}")
-
-    unknown_ai_permissions = [p for p in ppal_permissions["ai_sensitive_perms"] if p not in ppal_permissions["known_sensitive_perms"]]
-    if unknown_ai_permissions:
-        more_than_str = " and more..." if len(ppal_permissions["ai_sensitive_perms"]) > MAX_PERMS_TO_PRINT else ""
-        print(f"    - {colored('AI Sensitive', 'blue')}: {', '.join(f'`{p}`' for p in unknown_ai_permissions[:MAX_PERMS_TO_PRINT])}{more_than_str}")
-        if print_reasons:
-            print(f"    - Reasons: {ppal_permissions['ai_sensitive_perms_reasons']}")
+def print_permissions(ppal_permissions):
+    """Print flagged permissions by risk level."""
+    if not ppal_permissions or "flagged_perms" not in ppal_permissions:
+        return
+    
+    flagged_perms = ppal_permissions["flagged_perms"]
+    
+    # Print in order of severity
+    risk_colors = {
+        'critical': 'red',
+        'high': 'yellow',
+        'medium': 'blue',
+        'low': 'cyan'
+    }
+    
+    for risk_level in ['critical', 'high', 'medium', 'low']:
+        if risk_level in flagged_perms and flagged_perms[risk_level]:
+            perms = flagged_perms[risk_level]
+            more_than_str = " and more..." if len(perms) > MAX_PERMS_TO_PRINT else ""
+            color = risk_colors.get(risk_level, 'white')
+            print(f"    - {colored(risk_level.upper(), color)}: {', '.join(f'`{p}`' for p in perms[:MAX_PERMS_TO_PRINT])}{more_than_str}")
 
 
-def print_results(account_id, profile, print_reasons, merge_perms, unused_roles, unused_logins, unused_acc_keys, unused_perms, unused_groups, external_ppals, min_unused_days=30, json_output=False):
+
+
+def print_results(account_id, profile, unused_roles, unused_logins, unused_acc_keys, unused_perms, unused_groups, external_ppals, min_unused_days=30, json_output=False):
     """Print or return results for a single account."""
     # Return JSON if requested
     if json_output:
@@ -213,13 +123,13 @@ def print_results(account_id, profile, print_reasons, merge_perms, unused_roles,
     print(f"Interesting permissions in {colored(account_id, 'yellow')} ({colored(profile, 'blue')}): ")
 
     if unused_roles:
-        print(f"{colored('Unused roles with sensitive permissions', 'yellow', attrs=['bold'])}:")
+        print(f"{colored('Unused roles with flagged permissions', 'yellow', attrs=['bold'])}:")
         for arn, data in unused_roles.items():
             is_external_str = " and is externally accessible" if external_ppals.get(arn) else ""
             no_sensitive_perms = not data.get("permissions")
 
-            # If actually used in the last MIN_UNUSED_DAYS, skip it
-            if data['n_days'] < MIN_UNUSED_DAYS and data['n_days'] >= 0:
+            # If actually used in the last min_unused_days, skip it
+            if data['n_days'] < min_unused_days and data['n_days'] >= 0:
                 continue
 
             if data['n_days'] == -1:
@@ -228,17 +138,17 @@ def print_results(account_id, profile, print_reasons, merge_perms, unused_roles,
                 intro_str = f"  - `{arn}`: Last used {data['n_days']} days ago{is_external_str}"
 
             if no_sensitive_perms:
-                intro_str += " (No sensitive permissions granted)"
+                intro_str += " (No flagged permissions granted)"
 
             print(intro_str)
 
             if data.get("permissions"):
-                print_permissions(data["permissions"], print_reasons, merge_perms)
+                print_permissions(data["permissions"])
 
             print()
 
     if unused_logins:
-        print(f"{colored('Unused user logins with sensitive permissions', 'yellow', attrs=['bold'])}:")
+        print(f"{colored('Unused user logins with flagged permissions', 'yellow', attrs=['bold'])}:")
         for arn, data in unused_logins.items():
             is_external_str = " and is externally accessible" if external_ppals.get(arn) else ""
             no_sensitive_perms = not data.get("permissions")
@@ -253,17 +163,17 @@ def print_results(account_id, profile, print_reasons, merge_perms, unused_roles,
                 intro_str = f"  - `{arn}`: Last used {data['n_days']} days ago{is_external_str}"
 
             if no_sensitive_perms:
-                intro_str += " (No sensitive permissions granted)"
+                intro_str += " (No flagged permissions granted)"
 
             print(intro_str)
 
             if data.get("permissions"):
-                print_permissions(data["permissions"], print_reasons, merge_perms)
+                print_permissions(data["permissions"])
 
             print()
 
     if unused_acc_keys:
-        print(f"{colored('Unused access keys with sensitive permissions', 'yellow', attrs=['bold'])}:")
+        print(f"{colored('Unused access keys with flagged permissions', 'yellow', attrs=['bold'])}:")
         for arn, data in unused_acc_keys.items():
             is_external_str = " and is externally accessible" if external_ppals.get(arn) else ""
             no_sensitive_perms = not data.get("permissions")
@@ -278,17 +188,17 @@ def print_results(account_id, profile, print_reasons, merge_perms, unused_roles,
                 intro_str = f"  - `{arn}`: Last used {data['n_days']} days ago{is_external_str}"
 
             if no_sensitive_perms:
-                intro_str += " (No sensitive permissions granted)"
+                intro_str += " (No flagged permissions granted)"
 
             print(intro_str)
 
             if data.get("permissions"):
-                print_permissions(data["permissions"], print_reasons, merge_perms)
+                print_permissions(data["permissions"])
 
             print()
 
     if unused_groups:
-        print(f"{colored('Unused groups with sensitive permissions', 'yellow', attrs=['bold'])}:")
+        print(f"{colored('Unused groups with flagged permissions', 'yellow', attrs=['bold'])}:")
         for arn, data in unused_groups.items():
             is_external_str = " and is externally accessible" if external_ppals.get(arn) else ""
             no_sensitive_perms = not data.get("permissions")
@@ -298,17 +208,17 @@ def print_results(account_id, profile, print_reasons, merge_perms, unused_roles,
                 continue
 
             if no_sensitive_perms:
-                print(f"  - `{arn}`: Is empty{is_external_str} (No sensitive permissions granted)")
+                print(f"  - `{arn}`: Is empty{is_external_str} (No flagged permissions granted)")
             else:
                 print(f"  - `{arn}`: Never used{is_external_str}")
 
             if data.get("permissions"):
-                print_permissions(data["permissions"], print_reasons, merge_perms)
+                print_permissions(data["permissions"])
 
             print()
 
     if unused_perms:
-        print(f"{colored('Principals with unused sensitive permissions', 'yellow', attrs=['bold'])}:")
+        print(f"{colored('Principals with unused flagged permissions', 'yellow', attrs=['bold'])}:")
         for arn, data in unused_perms.items():
             is_external_str = " and is externally accessible" if external_ppals.get(arn) else ""
 
@@ -317,7 +227,7 @@ def print_results(account_id, profile, print_reasons, merge_perms, unused_roles,
             else:
                 print(f"  - `{arn}`: Last used {data['n_days']} days ago{is_external_str}")
 
-            print_permissions(data["permissions"], print_reasons, merge_perms)
+            print_permissions(data["permissions"])
 
             print(f"    - {colored('Unused permissions', 'magenta')}:")
             for service in list(data['last_perms'].keys())[:4]:
@@ -370,102 +280,6 @@ def print_results(account_id, profile, print_reasons, merge_perms, unused_roles,
             print()
 
     print()
-
-
-def remove_fences(text: str) -> str:
-    """Function that removes code fences from the response"""
-    text = text.strip()
-    if len(text.split("```")) == 3:
-        text = "\n".join(text.split("```")[1].split("\n")[1:])
-    elif len(text.split("```")) > 3:
-        if text.startswith("```"):
-            text = "\n".join(text.split("\n")[1:])
-        if text.endswith("```"):
-            text = "\n".join(text.split("\n")[:-1])
-    return text
-
-
-def _rate_limited_request():
-    """Enforce 5 requests/min across threads for HackTricks AI."""
-    max_requests = 5
-    window = 61  # seconds
-    while True:
-        with _RATE_LIMIT_LOCK:
-            now = time.time()
-            # keep only timestamps within window
-            while _REQUEST_TIMESTAMPS and now - _REQUEST_TIMESTAMPS[0] >= window:
-                _REQUEST_TIMESTAMPS.pop(0)
-            if len(_REQUEST_TIMESTAMPS) < max_requests:
-                _REQUEST_TIMESTAMPS.append(now)
-                return
-            # need to wait
-            wait = window - (now - _REQUEST_TIMESTAMPS[0])
-        time.sleep(max(wait, 0.5))
-
-
-def query_hacktricks_ai(msg: str, cont: int = 0):
-    """
-    Call HackTricks AI with a prompt string and parse a strict JSON reply.
-    Retries with exponential backoff. Uses cache to avoid redundant calls.
-    """
-    # Check cache first
-    cache_key = hashlib.md5(msg.encode()).hexdigest()
-    with _AI_CACHE_LOCK:
-        if cache_key in _AI_CACHE:
-            return _AI_CACHE[cache_key]
-    
-    _rate_limited_request()
-    try:
-        resp = requests.post(HACKTRICKS_AI_ENDPOINT, json={"query": msg}, timeout=420)
-    except requests.RequestException as e:
-        print(f"{colored('[-] Error connecting to HackTricks AI: ', 'red')}{e}")
-        if cont < 2:  # Reduced to 2 retries
-            wait_time = 5 * (2 ** cont)  # Exponential backoff
-            print(f"{colored('[*] Retrying in', 'yellow')} {wait_time}s...")
-            time.sleep(wait_time)
-            return query_hacktricks_ai(msg, cont=cont+1)
-        return None
-
-    if resp.status_code == 429:
-        wait_time = min(60 * (2 ** cont), 120)  # Exponential backoff, max 2 min
-        print(f"{colored('[-] Rate limit from HackTricks AI. Waiting', 'yellow')} {wait_time}s...")
-        time.sleep(wait_time)
-        if cont < 2:
-            return query_hacktricks_ai(msg, cont=cont+1)
-        return None
-
-    if resp.status_code != 200:
-        print(f"{colored('[-] HackTricks AI returned ', 'red')}{resp.status_code}: {resp.text}")
-        if cont < 2:
-            wait_time = 5 * (2 ** cont)
-            print(f"{colored('[*] Retrying in', 'yellow')} {wait_time}s...")
-            time.sleep(wait_time)
-            return query_hacktricks_ai(msg, cont=cont+1)
-        return None
-
-    try:
-        data = resp.json()
-        result = (data.get("response") or "").strip()
-        result = remove_fences(result)
-        parsed = json.loads(result)
-        
-        # Cache the successful result
-        with _AI_CACHE_LOCK:
-            _AI_CACHE[cache_key] = parsed
-        
-        return parsed
-    except Exception as e:
-        print(f"{colored('[-] Error parsing HackTricks AI response: ', 'red')}{e}")
-        if cont < 2:
-            # Ask the model to fix JSON format
-            fix_msg = (
-                f"{msg}\n\n### Indications\n"
-                f"- You gave a wrongly formatted response. Fix it to match the expected JSON.\n"
-                f"- Your invalid response was:\n\n{resp.text}\n"
-            )
-            time.sleep(5)
-            return query_hacktricks_ai(fix_msg, cont=cont+1)
-        return None
 
 
 ########################
@@ -544,92 +358,63 @@ def combine_permissions(policy_documents, all_resources, all_actions, readonly_p
 
 
 # Function to check if a policy contains sensitive or privesc permissions
-def check_policy(all_perm, arn, verbose, only_yaml):
-    global PERMISSIONS_DATA
+def check_policy(all_perm, risk_levels=None):
+    global PERMISSIONS_CAT_DATA
     if not all_perm:
-        return
+        return {
+            "flagged_perms": {},
+            "is_admin": False
+        }
+    
+    # Default to high and critical if not specified
+    if risk_levels is None:
+        risk_levels = ['high', 'critical']
 
-    all_privesc_perms = []
-    all_sensitive_perms = []
-    all_privesc_perms_reasons = ""
-    all_sensitive_perms_reasons = ""
-    all_privesc_perms_ai = []
-    all_sensitive_perms_ai = []
-    all_privesc_perms_ai_reasons = ""
-    all_sensitive_perms_ai_reasons = ""
+    flagged_perms = {}  # {risk_level: [permissions]}
     is_admin = False
 
+    # Check for administrator access
     if all_perm and "*" in all_perm:
-        all_privesc_perms = ["*"]
-        all_privesc_perms_reasons = IS_ADMINISTRATOR_REASON
+        flagged_perms['critical'] = ["*"]
         is_admin = True
-        # Just return from here
+        return {
+            "flagged_perms": flagged_perms,
+            "is_admin": is_admin
+        }
 
     if not is_admin and all_perm:
+        # Check permissions by risk level
+        for risk_level in ['low', 'medium', 'high', 'critical']:
+            if risk_level not in risk_levels:
+                continue  # Skip risk levels not requested
+                
+            if risk_level in PERMISSIONS_CAT_DATA:
+                for perm_pattern in PERMISSIONS_CAT_DATA[risk_level]:
+                    # Handle comma-separated permissions (all must be present)
+                    if "," in perm_pattern:
+                        required_perms = [p.strip() for p in perm_pattern.split(",")]
+                    else:
+                        required_perms = [perm_pattern]
 
-        # Always check YAML permissions (known rules)
-        for aws_svc, permissions in PERMISSIONS_DATA.items():
-            for perm_type in ["privesc", "sensitive"]:
-                if perm_type in permissions:
-
-                    for perm in permissions[perm_type]:
-                        if "," in perm:
-                            required_perms = perm.replace(" ", "").split(",")
-                        else:
-                            required_perms = [perm]
-
-                        # Check if all required permissions match any permission patterns in all_perm
-                        if all(
-                                any(fnmatch.fnmatch(req_perm, p_pattern) for p_pattern in all_perm)
-                            for req_perm in required_perms):
-
-                            if perm_type == "privesc":
-                                all_privesc_perms.extend(required_perms)
-                                all_privesc_perms_reasons += ", ".join(permissions["urls"])
-                            elif perm_type == "sensitive":
-                                all_sensitive_perms.extend(required_perms)
-                                all_sensitive_perms_reasons += ", ".join(permissions["urls"])
-
-        # Optionally check with HackTricks AI (skip when only_yaml)
-        if not only_yaml:
-            all_perm_str = ", ".join(all_perm)
-            msg = (
-                f"{PERSONALITY}\n\n"
-                f"{PROMPT_ASK_PERMISSIONS.replace('__PERMISSIONS__', all_perm_str)}\n\n"
-                f"{FINAL_CLARIFICATIONS}"
-            )
-            response = query_hacktricks_ai(msg)
-            if response:
-                # Confirm step
-                if response.get("privesc") or response.get("sensitive"):
-                    confirm = (
-                        f"{PERSONALITY}\n\n"
-                        f"{PROMPT_CONFIRM_PERMISSIONS.replace('__PERMISSIONS__', all_perm_str).replace('__GIVEN_PERMISSIONS__', json.dumps(response, indent=4))}\n\n"
-                        f"{FINAL_CLARIFICATIONS}"
-                    )
-                    response = query_hacktricks_ai(confirm) or response
-                if "privesc" in response:
-                    all_privesc_perms_ai.extend(response["privesc"])
-                    all_privesc_perms_ai_reasons = response.get("privesc_reasons", "")
-                if "sensitive" in response:
-                    all_sensitive_perms_ai.extend(response["sensitive"])
-                    all_sensitive_perms_ai_reasons = response.get("sensitive_reasons", "")
+                    # Check if all required permissions match
+                    if all(any(fnmatch.fnmatch(req_perm, p) for p in all_perm) for req_perm in required_perms):
+                        if risk_level not in flagged_perms:
+                            flagged_perms[risk_level] = []
+                        flagged_perms[risk_level].extend(required_perms)
+        
+        # Deduplicate permissions within each risk level
+        for risk_level in flagged_perms:
+            flagged_perms[risk_level] = list(dict.fromkeys(flagged_perms[risk_level]))  # Preserves order
 
     return {
-        "known_privesc_perms": all_privesc_perms,
-        "known_sensitive_perms": all_sensitive_perms,
-        "known_privesc_perms_reasons": all_privesc_perms_reasons if all_privesc_perms_reasons else all_sensitive_perms_reasons,
-        "known_sensitive_perms_reasons": all_sensitive_perms_reasons if all_sensitive_perms_reasons else all_privesc_perms_reasons,
-
-        "ai_privesc_perms": all_privesc_perms_ai,
-        "ai_sensitive_perms": all_sensitive_perms_ai,
-        "ai_privesc_perms_reasons": all_privesc_perms_ai_reasons,
-        "ai_sensitive_perms_reasons": all_sensitive_perms_ai_reasons
+        "flagged_perms": flagged_perms,
+        "is_admin": is_admin
     }
 
 
+
 # Function to get inline and attached policies for a principal
-def get_policies(iam_client, principal_type, principal_name, arn, verbose, only_yaml, all_resources, all_actions, readonly_perms):
+def get_policies(iam_client, principal_type, principal_name, arn, verbose, all_resources, all_actions, readonly_perms, risk_levels):
     policy_document = []
     attached_policies = {}
 
@@ -724,7 +509,7 @@ def get_policies(iam_client, principal_type, principal_name, arn, verbose, only_
 
     if policy_document:
         all_perm = combine_permissions(policy_document, all_resources, all_actions, readonly_perms)
-        interesting_perms = check_policy(all_perm, arn, verbose, only_yaml)
+        interesting_perms = check_policy(all_perm, risk_levels)
         return interesting_perms
     else:
         return None
@@ -858,7 +643,8 @@ def get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, arn, type_ppal, permis
     
     for finding in findings:
         try:
-            if permissions_dict["known_privesc_perms_reasons"] != IS_ADMINISTRATOR_REASON:
+            # Check if not administrator
+            if not permissions_dict.get("is_admin", False):
                 details = accessanalyzer.get_finding_v2(analyzerArn=analyzer_arn, id=finding["id"])['findingDetails']
                 last_perms = {}
                 max_n_days = -1  # Track the maximum (oldest) n_days across all details
@@ -879,7 +665,11 @@ def get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, arn, type_ppal, permis
 
                     service_namespace = detail['unusedPermissionDetails']['serviceNamespace']
 
-                    all_current_perms = permissions_dict["known_privesc_perms"] + permissions_dict["known_sensitive_perms"] + permissions_dict["ai_privesc_perms"] + permissions_dict["ai_sensitive_perms"]
+                    # Collect all flagged permissions across all risk levels
+                    all_current_perms = []
+                    if "flagged_perms" in permissions_dict:
+                        for risk_level, perms in permissions_dict["flagged_perms"].items():
+                            all_current_perms.extend(perms)
 
                     # If the affected namespace is not in the permissions, skip
                     if not any(fnmatch.fnmatch(service_namespace, p.split(":")[0]) for p in all_current_perms):
@@ -954,26 +744,28 @@ def get_external_principals(accessanalyzer, analyzer_arn_exposed, external_ppals
             continue
 
 
-def check_user_permissions(user, iam_client, verbose, only_yaml, all_resources, all_actions, accessanalyzer, analyzer_arn, unused_logins, unused_acc_keys, unused_perms, lock, readonly_perms):
+def check_user_permissions(user, iam_client, verbose, all_resources, all_actions, accessanalyzer, analyzer_arn, unused_logins, unused_acc_keys, unused_perms, lock, readonly_perms, risk_levels):
     """Check permissions for a single user (thread-safe)"""
     try:
-        user_perms = get_policies(iam_client, "User", user["UserName"], user["Arn"], verbose, only_yaml, all_resources, all_actions, readonly_perms)
-        if user_perms and any(v for v in user_perms.values()):
-            # Check if this user already has unused login/key findings
-            with lock:
-                has_login = unused_logins.get(user["Arn"])
-                has_key = unused_acc_keys.get(user["Arn"])
-            
-            # Update permissions (quick dict write)
-            if has_login:
+        user_perms = get_policies(iam_client, "User", user["UserName"], user["Arn"], verbose, all_resources, all_actions, readonly_perms, risk_levels)
+        if user_perms and user_perms.get("flagged_perms"):
+            # Only check unused permissions if Access Analyzer is available
+            if accessanalyzer and analyzer_arn:
+                # Check if this user already has unused login/key findings
                 with lock:
-                    unused_logins[user["Arn"]]["permissions"] = user_perms
-            elif has_key:
-                with lock:
-                    unused_acc_keys[user["Arn"]]["permissions"] = user_perms
-            else:
-                # Network-heavy call outside lock for parallelism
-                get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, user["Arn"], "user", user_perms, unused_perms, lock, verbose)
+                    has_login = unused_logins.get(user["Arn"])
+                    has_key = unused_acc_keys.get(user["Arn"])
+                
+                # Update permissions (quick dict write)
+                if has_login:
+                    with lock:
+                        unused_logins[user["Arn"]]["permissions"] = user_perms
+                elif has_key:
+                    with lock:
+                        unused_acc_keys[user["Arn"]]["permissions"] = user_perms
+                else:
+                    # Network-heavy call outside lock for parallelism
+                    get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, user["Arn"], "user", user_perms, unused_perms, lock, verbose)
     except ClientError as e:
         if verbose:
             print(f"{colored('[-] ', 'yellow')}Error processing user {user['UserName']}: {e.response['Error']['Message']}")
@@ -981,14 +773,14 @@ def check_user_permissions(user, iam_client, verbose, only_yaml, all_resources, 
         if verbose:
             print(f"{colored('[-] ', 'red')}Error processing user {user['UserName']}: {str(e)}")
 
-def check_group_permissions(group, iam_client, verbose, only_yaml, all_resources, all_actions, accessanalyzer, analyzer_arn, unused_groups, unused_perms, lock, readonly_perms):
+def check_group_permissions(group, iam_client, verbose, all_resources, all_actions, accessanalyzer, analyzer_arn, unused_groups, unused_perms, lock, readonly_perms, risk_levels):
     """Check permissions for a single group (thread-safe)"""
     try:
-        group_perms = get_policies(iam_client, "Group", group["GroupName"], group["Arn"], verbose, only_yaml, all_resources, all_actions, readonly_perms)
+        group_perms = get_policies(iam_client, "Group", group["GroupName"], group["Arn"], verbose, all_resources, all_actions, readonly_perms, risk_levels)
         is_empty = is_group_empty(iam_client, group["GroupName"])
         
-        # Quick dict write with lock
-        if is_empty:
+        # Quick dict write with lock (only if Access Analyzer is available)
+        if is_empty and accessanalyzer:
             with lock:
                 unused_groups[group["Arn"]] = {
                     "type": "group",
@@ -996,8 +788,8 @@ def check_group_permissions(group, iam_client, verbose, only_yaml, all_resources
                     "permissions": group_perms
                 }
         
-        # Network-heavy call outside lock for parallelism
-        if group_perms and any(v for v in group_perms.values()):
+        # Network-heavy call outside lock for parallelism (only if Access Analyzer is available)
+        if group_perms and group_perms.get("flagged_perms") and accessanalyzer and analyzer_arn:
             get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, group["Arn"], "group", group_perms, unused_perms, lock, verbose)
     except ClientError as e:
         if verbose:
@@ -1006,22 +798,24 @@ def check_group_permissions(group, iam_client, verbose, only_yaml, all_resources
         if verbose:
             print(f"{colored('[-] ', 'red')}Error processing group {group['GroupName']}: {str(e)}")
 
-def check_role_permissions(role, iam_client, verbose, only_yaml, all_resources, all_actions, accessanalyzer, analyzer_arn, unused_roles, unused_perms, lock, readonly_perms):
+def check_role_permissions(role, iam_client, verbose, all_resources, all_actions, accessanalyzer, analyzer_arn, unused_roles, unused_perms, lock, readonly_perms, risk_levels):
     """Check permissions for a single role (thread-safe)"""
     try:
-        role_perms = get_policies(iam_client, "Role", role["RoleName"], role["Arn"], verbose, only_yaml, all_resources, all_actions, readonly_perms)
-        if role_perms and any(v for v in role_perms.values()):
-            # Check if this role already has unused finding
-            with lock:
-                has_unused = unused_roles.get(role["Arn"])
-            
-            # Update permissions (quick dict write)
-            if has_unused:
+        role_perms = get_policies(iam_client, "Role", role["RoleName"], role["Arn"], verbose, all_resources, all_actions, readonly_perms, risk_levels)
+        if role_perms and role_perms.get("flagged_perms"):
+            # Only check unused permissions if Access Analyzer is available
+            if accessanalyzer and analyzer_arn:
+                # Check if this role already has unused finding
                 with lock:
-                    unused_roles[role["Arn"]]["permissions"] = role_perms
-            else:
-                # Network-heavy call outside lock for parallelism
-                get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, role["Arn"], "role", role_perms, unused_perms, lock, verbose)
+                    has_unused = unused_roles.get(role["Arn"])
+                
+                # Update permissions (quick dict write)
+                if has_unused:
+                    with lock:
+                        unused_roles[role["Arn"]]["permissions"] = role_perms
+                else:
+                    # Network-heavy call outside lock for parallelism
+                    get_unused_pers_of_ppal(accessanalyzer, analyzer_arn, role["Arn"], "role", role_perms, unused_perms, lock, verbose)
     except ClientError as e:
         if verbose:
             print(f"{colored('[-] ', 'yellow')}Error processing role {role['RoleName']}: {e.response['Error']['Message']}")
@@ -1030,7 +824,7 @@ def check_role_permissions(role, iam_client, verbose, only_yaml, all_resources, 
             print(f"{colored('[-] ', 'red')}Error processing role {role['RoleName']}: {str(e)}")
 
 
-def process_account(profile_name, aws_access_key_id, aws_secret_access_key, aws_session_token, role_arn, verbose, only_yaml, all_resources, print_reasons, all_actions, merge_perms, max_perms_to_print, min_unused_days, json_output=False):
+def process_account(profile_name, aws_access_key_id, aws_secret_access_key, aws_session_token, role_arn, verbose, no_access_analyzer, all_resources, all_actions, max_perms_to_print, min_unused_days, risk_levels, json_output=False):
     """Process a single AWS account. Returns (success, result, errors) tuple."""
     global MAX_PERMS_TO_PRINT
     
@@ -1102,84 +896,98 @@ def process_account(profile_name, aws_access_key_id, aws_secret_access_key, aws_
         if not readonly_perms and verbose:
             permission_errors.append({"operation": "GetReadOnlyPermissions", "error": "Failed to fetch ReadOnly policy"})
         
-        already_created_analyzers = True
+        # Access Analyzer setup (optional)
+        analyzer_arn = None
+        analyzer_arn_exposed = None
+        accessanalyzer = None
         created_analyzers = []
-        accessanalyzer = session.client("accessanalyzer", "us-east-1", config=BOTO3_CONFIG)
         
-        # Try to create or find unused access analyzer
-        try:
-            analyzer_arn = accessanalyzer.create_analyzer(analyzerName="iam_analyzer_unused", type='ACCOUNT_UNUSED_ACCESS', archiveRules=[])["arn"]
-            created_analyzers.append("iam_analyzer_unused")
-            # Register for global cleanup on interrupt
-            with _ALL_ANALYZERS_LOCK:
-                _ALL_ANALYZERS.append((accessanalyzer, "iam_analyzer_unused"))
-            if not json_output:
-                print(f"{colored('[+] ', 'green')}Analyzer iam_analyzer_unused created successfully.")
-            already_created_analyzers = False
-        except ClientError as e:
-            if e.response['Error']['Code'] == 'ResourceNotFoundException':
-                return (False, None, [{"operation": "AccessAnalyzer", "error": "IAM Access Analyzer not available in this account/region"}])
-            elif e.response['Error']['Code'] in ['AccessDeniedException', 'AccessDenied']:
-                permission_errors.append({"operation": "CreateAnalyzer", "error": "Access denied to create analyzer"})
-            # Try to find existing analyzer
-            if verbose and not json_output:
-                print(f"{colored('[*] ', 'yellow')}Could not create analyzer: {e.response['Error']['Message']}")
-            analyzer_arn = ""
-            try:
-                analyzers = accessanalyzer.list_analyzers(type="ACCOUNT_UNUSED_ACCESS")
-                if 'analyzers' in analyzers and analyzers['analyzers']:
-                    analyzer_arn = analyzers['analyzers'][-1]['arn']
-            except ClientError as e:
-                permission_errors.append({"operation": "ListAnalyzers", "error": str(e)})
-            if not analyzer_arn:
-                return (False, None, [{"operation": "AccessAnalyzer", "error": "No unused access analyzer found and cannot create one"}])
-
-        # Try to create or find exposed assets analyzer
-        try:
-            analyzer_arn_exposed = accessanalyzer.create_analyzer(analyzerName="iam_analyzer_exposed", type='ACCOUNT', archiveRules=[])["arn"]
-            created_analyzers.append("iam_analyzer_exposed")
-            # Register for global cleanup on interrupt
-            with _ALL_ANALYZERS_LOCK:
-                _ALL_ANALYZERS.append((accessanalyzer, "iam_analyzer_exposed"))
-            if not json_output:
-                print(f"{colored('[+] ', 'green')}Analyzer iam_analyzer_exposed created successfully.")
-            already_created_analyzers = False
-        except ClientError as e:
-            if e.response['Error']['Code'] in ['AccessDeniedException', 'AccessDenied']:
-                permission_errors.append({"operation": "CreateExposedAnalyzer", "error": "Access denied to create exposed analyzer"})
-            if verbose and not json_output:
-                print(f"{colored('[*] ', 'yellow')}Could not create exposed analyzer: {e.response['Error']['Message']}")
-            analyzer_arn_exposed = ""
-            try:
-                analyzers = accessanalyzer.list_analyzers(type="ACCOUNT")
-                if 'analyzers' in analyzers and analyzers['analyzers']:
-                    analyzer_arn_exposed = analyzers['analyzers'][-1]['arn']
-            except ClientError as e:
-                permission_errors.append({"operation": "ListExposedAnalyzers", "error": str(e)})
-            if not analyzer_arn_exposed:
-                return (False, None, [{"operation": "ExposedAnalyzer", "error": "No exposed access analyzer found and cannot create one"}])
-
-        # Wait for analyzers if just created
-        if not already_created_analyzers:
-            if not json_output:
-                print(f"{colored('[+] ', 'grey')}Analyzers were just created. Waiting 3 minutes for them to analyze the account, don't stop the script...")
-            sleep(60*3)
-
-        if not json_output:
-            print(f"{colored('[+] ', 'green')}Fetching findings from analyzers...")
-        
-        # Parallel fetch of analyzer findings
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-            future_external = executor.submit(get_external_principals, accessanalyzer, analyzer_arn_exposed, EXTERNAL_PPALS, verbose)
-            future_keys = executor.submit(get_unused_access_keys, accessanalyzer, analyzer_arn, UNUSED_ACC_KEYS, verbose)
-            future_logins = executor.submit(get_unused_logins, accessanalyzer, analyzer_arn, UNUSED_LOGINS, verbose)
-            future_roles_unused = executor.submit(get_unused_roles, accessanalyzer, analyzer_arn, UNUSED_ROLES, verbose)
+        if not no_access_analyzer:
+            already_created_analyzers = True
+            accessanalyzer = session.client("accessanalyzer", "us-east-1", config=BOTO3_CONFIG)
             
-            # Wait for all to complete
-            future_external.result()
-            future_keys.result()
-            future_logins.result()
-            future_roles_unused.result()
+            # Try to create or find unused access analyzer
+            try:
+                analyzer_arn = accessanalyzer.create_analyzer(analyzerName="iam_analyzer_unused", type='ACCOUNT_UNUSED_ACCESS', archiveRules=[])["arn"]
+                created_analyzers.append("iam_analyzer_unused")
+                # Register for global cleanup on interrupt
+                with _ALL_ANALYZERS_LOCK:
+                    _ALL_ANALYZERS.append((accessanalyzer, "iam_analyzer_unused"))
+                if not json_output:
+                    print(f"{colored('[+] ', 'green')}Analyzer iam_analyzer_unused created successfully.")
+                already_created_analyzers = False
+            except ClientError as e:
+                if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                    if not json_output:
+                        print(f"{colored('[!] ', 'yellow')}IAM Access Analyzer not available in this account/region. Continuing without analyzer...")
+                    permission_errors.append({"operation": "AccessAnalyzer", "error": "IAM Access Analyzer not available"})
+                elif e.response['Error']['Code'] in ['AccessDeniedException', 'AccessDenied']:
+                    permission_errors.append({"operation": "CreateAnalyzer", "error": "Access denied to create analyzer"})
+                # Try to find existing analyzer
+                if verbose and not json_output:
+                    print(f"{colored('[*] ', 'yellow')}Could not create analyzer: {e.response['Error']['Message']}")
+                analyzer_arn = ""
+                try:
+                    analyzers = accessanalyzer.list_analyzers(type="ACCOUNT_UNUSED_ACCESS")
+                    if 'analyzers' in analyzers and analyzers['analyzers']:
+                        analyzer_arn = analyzers['analyzers'][-1]['arn']
+                except ClientError as e:
+                    permission_errors.append({"operation": "ListAnalyzers", "error": str(e)})
+
+            # Try to create or find exposed assets analyzer
+            try:
+                analyzer_arn_exposed = accessanalyzer.create_analyzer(analyzerName="iam_analyzer_exposed", type='ACCOUNT', archiveRules=[])["arn"]
+                created_analyzers.append("iam_analyzer_exposed")
+                # Register for global cleanup on interrupt
+                with _ALL_ANALYZERS_LOCK:
+                    _ALL_ANALYZERS.append((accessanalyzer, "iam_analyzer_exposed"))
+                if not json_output:
+                    print(f"{colored('[+] ', 'green')}Analyzer iam_analyzer_exposed created successfully.")
+                already_created_analyzers = False
+            except ClientError as e:
+                if e.response['Error']['Code'] in ['AccessDeniedException', 'AccessDenied']:
+                    permission_errors.append({"operation": "CreateExposedAnalyzer", "error": "Access denied to create exposed analyzer"})
+                if verbose and not json_output:
+                    print(f"{colored('[*] ', 'yellow')}Could not create exposed analyzer: {e.response['Error']['Message']}")
+                analyzer_arn_exposed = ""
+                try:
+                    analyzers = accessanalyzer.list_analyzers(type="ACCOUNT")
+                    if 'analyzers' in analyzers and analyzers['analyzers']:
+                        analyzer_arn_exposed = analyzers['analyzers'][-1]['arn']
+                except ClientError as e:
+                    permission_errors.append({"operation": "ListExposedAnalyzers", "error": str(e)})
+
+            # Wait for analyzers if just created
+            if not already_created_analyzers:
+                if not json_output:
+                    print(f"{colored('[+] ', 'grey')}Analyzers were just created. Waiting 3 minutes for them to analyze the account, don't stop the script...")
+                sleep(60*3)
+
+            if not json_output and (analyzer_arn or analyzer_arn_exposed):
+                print(f"{colored('[+] ', 'green')}Fetching findings from analyzers...")
+            
+            # Parallel fetch of analyzer findings (only if analyzers are available)
+            if analyzer_arn or analyzer_arn_exposed:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                    futures_analyzer = []
+                    if analyzer_arn_exposed:
+                        futures_analyzer.append(executor.submit(get_external_principals, accessanalyzer, analyzer_arn_exposed, EXTERNAL_PPALS, verbose))
+                    if analyzer_arn:
+                        futures_analyzer.append(executor.submit(get_unused_access_keys, accessanalyzer, analyzer_arn, UNUSED_ACC_KEYS, verbose))
+                        futures_analyzer.append(executor.submit(get_unused_logins, accessanalyzer, analyzer_arn, UNUSED_LOGINS, verbose))
+                        futures_analyzer.append(executor.submit(get_unused_roles, accessanalyzer, analyzer_arn, UNUSED_ROLES, verbose))
+                    
+                    # Wait for all analyzer futures to complete
+                    for fut in concurrent.futures.as_completed(futures_analyzer):
+                        try:
+                            fut.result()
+                        except Exception as e:
+                            if verbose and not json_output:
+                                print(f"{colored('[-] ', 'red')}Analyzer error: {str(e)}")
+                            permission_errors.append({"operation": "AnalyzerFindings", "error": str(e)})
+        else:
+            if not json_output:
+                print(f"{colored('[*] ', 'yellow')}Access Analyzer disabled. Will only list principals and their sensitive permissions.")
 
         # Get all users with pagination
         users = []
@@ -1197,7 +1005,7 @@ def process_account(profile_name, aws_access_key_id, aws_secret_access_key, aws_
         if users:
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                 progress_bar = tqdm(total=len(users), desc=f"Checking user permissions", disable=json_output)
-                futures = [executor.submit(check_user_permissions, user, iam, verbose, only_yaml, all_resources, all_actions, accessanalyzer, analyzer_arn, UNUSED_LOGINS, UNUSED_ACC_KEYS, UNUSED_PERMS, lock, readonly_perms) for user in users]
+                futures = [executor.submit(check_user_permissions, user, iam, verbose, all_resources, all_actions, accessanalyzer, analyzer_arn, UNUSED_LOGINS, UNUSED_ACC_KEYS, UNUSED_PERMS, lock, readonly_perms, risk_levels) for user in users]
                 for future in concurrent.futures.as_completed(futures):
                     try:
                         future.result()  # Raise any exception from the worker
@@ -1223,7 +1031,7 @@ def process_account(profile_name, aws_access_key_id, aws_secret_access_key, aws_
         if groups:
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                 progress_bar = tqdm(total=len(groups), desc=f"Checking group permissions", disable=json_output)
-                futures = [executor.submit(check_group_permissions, group, iam, verbose, only_yaml, all_resources, all_actions, accessanalyzer, analyzer_arn, UNUSED_GROUPS, UNUSED_PERMS, lock, readonly_perms) for group in groups]
+                futures = [executor.submit(check_group_permissions, group, iam, verbose, all_resources, all_actions, accessanalyzer, analyzer_arn, UNUSED_GROUPS, UNUSED_PERMS, lock, readonly_perms, risk_levels) for group in groups]
                 for future in concurrent.futures.as_completed(futures):
                     try:
                         future.result()  # Raise any exception from the worker
@@ -1249,7 +1057,7 @@ def process_account(profile_name, aws_access_key_id, aws_secret_access_key, aws_
         if roles:
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                 progress_bar = tqdm(total=len(roles), desc=f"Checking role permissions", disable=json_output)
-                futures = [executor.submit(check_role_permissions, role, iam, verbose, only_yaml, all_resources, all_actions, accessanalyzer, analyzer_arn, UNUSED_ROLES, UNUSED_PERMS, lock, readonly_perms) for role in roles]
+                futures = [executor.submit(check_role_permissions, role, iam, verbose, all_resources, all_actions, accessanalyzer, analyzer_arn, UNUSED_ROLES, UNUSED_PERMS, lock, readonly_perms, risk_levels) for role in roles]
                 for future in concurrent.futures.as_completed(futures):
                     try:
                         future.result()  # Raise any exception from the worker
@@ -1267,8 +1075,6 @@ def process_account(profile_name, aws_access_key_id, aws_secret_access_key, aws_
         result = print_results(
             account_id, 
             profile_name, 
-            print_reasons, 
-            merge_perms,
             UNUSED_ROLES,
             UNUSED_LOGINS,
             UNUSED_ACC_KEYS,
@@ -1319,7 +1125,7 @@ def process_account(profile_name, aws_access_key_id, aws_secret_access_key, aws_
         return (False, None, [{"operation": "General", "error": error_msg}])
 
 
-def main(profiles, assume_roles, verbose, only_yaml, all_resources, print_reasons, all_actions, merge_perms, max_perms_to_print, min_unused_days, json_output=False):
+def main(profiles, assume_roles, verbose, no_access_analyzer, all_resources, all_actions, max_perms_to_print, min_unused_days, risk_levels, json_output=False):
     global MAX_PERMS_TO_PRINT
 
     if max_perms_to_print:
@@ -1353,13 +1159,12 @@ def main(profiles, assume_roles, verbose, only_yaml, all_resources, print_reason
                 aws_session_token,
                 role_arn,
                 verbose,
-                only_yaml,
+                no_access_analyzer,
                 all_resources,
-                print_reasons,
                 all_actions,
-                merge_perms,
                 max_perms_to_print,
                 min_unused_days,
+                risk_levels,
                 json_output
             )
             futures.append((profile_name, role_arn, future))
@@ -1416,11 +1221,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=HELP)
     parser.add_argument("--profile", help="AWS profile to check")
     parser.add_argument("-v", "--verbose", default=False, help="Get info about why a permission is sensitive or useful for privilege escalation.", action="store_true")
-    parser.add_argument("--only-yaml", default=False, help="Use only the YAML rules (disable HackTricks AI).", action="store_true")
+    parser.add_argument("--no-access-analyzer", default=False, help="Disable AWS Access Analyzer (will not report unused resources/permissions, but will still list all principals and their sensitive permissions)", action="store_true")
     parser.add_argument("--all-resources", default=False, help="Do not filter only permissions over '*'", action="store_true")
-    parser.add_argument("--print-reasons", default=False, help="Print the reasons why a permission is considered sensitive or useful for privilege escalation.", action="store_true")
+    parser.add_argument("--risk-levels", default="high,critical", help="Comma-separated list of risk levels to flag (low,medium,high,critical). Default: high,critical")
     parser.add_argument("--all-actions", default=False, help="Do not filter permissions inside the readOnly policy", action="store_true")
-    parser.add_argument("--merge-perms", default=False, help="Print permissions from YAML and HackTricks AI merged", action="store_true")
     parser.add_argument("--max-perms-to-print", type=int, help="Maximum number of permissions to print per row", default=15)
     parser.add_argument("--min-unused-days", type=int, help="Minimum number of days a resource must be unused to be reported (default: 30)", default=30)
     parser.add_argument("--json", dest="json_output", default=False, action="store_true", help="Output results in JSON format")
@@ -1432,6 +1236,14 @@ if __name__ == "__main__":
     parser.add_argument("--assume-roles", nargs="+", help="List of role ARNs to assume for multi-account analysis")
 
     args = parser.parse_args()
+    
+    # Parse and validate risk levels
+    valid_risk_levels = ['low', 'medium', 'high', 'critical']
+    risk_levels = [r.strip().lower() for r in args.risk_levels.split(',')]
+    for risk in risk_levels:
+        if risk not in valid_risk_levels:
+            print(f"{colored('[-] ', 'red')}Error: Invalid risk level '{risk}'. Valid values: {', '.join(valid_risk_levels)}")
+            sys.exit(1)
 
     # Validate arguments
     if args.access_key_id and not args.secret_access_key:
@@ -1473,12 +1285,11 @@ if __name__ == "__main__":
         profiles,
         assume_roles,
         args.verbose,
-        args.only_yaml,
+        args.no_access_analyzer,
         args.all_resources,
-        args.print_reasons,
         args.all_actions,
-        args.merge_perms,
         int(args.max_perms_to_print),
         int(args.min_unused_days),
+        risk_levels,
         json_output=args.json_output if hasattr(args, 'json_output') else False
     )

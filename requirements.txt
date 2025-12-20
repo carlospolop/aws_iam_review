@@ -3,3 +3,5 @@ termcolor
 pyyaml
 openai
 tiktoken
+requests
+google-auth

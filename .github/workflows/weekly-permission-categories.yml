@@ -1,0 +1,49 @@
+name: Weekly permission category update
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Update datasets and categories
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+        run: python scripts/update_permission_categories.py
+      
+      - name: Validate categories
+        run: python scripts/validate_permission_categories.py
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore: update permission categories"
+          title: "chore: weekly permission category update"
+          body: |
+            Automated weekly refresh of:
+            - `tmp_perms/*` datasets
+            - `aws_permissions_cat.yaml`
+            - `gcp_permissions_cat.yaml`
+            - `azure_permissions_cat.yaml`
+            - `unclassified_permissions.yaml` (when OpenAI classification fails)
+          branch: "automation/weekly-permission-categories"
+          delete-branch: true

@@ -133,3 +133,54 @@ python3 aws_iam_review.py profile-name --json > results.json
 **Console Output** (default): Color-coded, filtered view showing the most critical findings. Applies `--min-unused-days` filtering and limits display to 4 services and 3 permissions per service for readability.
 
 **JSON Output** (`--json`): Complete unfiltered data including all services, permissions, and metadata. Ignores display limits and filtering thresholds. Use for automated processing or comprehensive analysis.
+
+---
+
+# GCP IAM Review (Recommender + Cloud Asset)
+
+The repository also includes `gcp_iam_review.py`, which uses:
+- **Recommender API** (`google.iam.policy.Recommender`) to suggest IAM bindings/roles that can be removed or reduced based on observed usage.
+- **Cloud Asset Inventory** to highlight risky IAM trust patterns (public access, Workload Identity Federation trusts, external domains).
+- **HackTricks AI** (optional) to classify effective permissions (expanded from bound roles) into privilege-escalation vs sensitive permissions.
+
+It authenticates via:
+- `--sa-json` (service account JSON key), or
+- your current `gcloud` login, or
+- ADC/metadata credentials (GCE/GKE).
+When using `--allowed-domain`, the script always includes the current `gcloud` account domain in the allowlist by default.
+YAML-based classification requires a `gcp_sensitive_permissions.yaml` file next to `gcp_iam_review.py`.
+
+## Needed Permissions (GCP)
+
+- Recommender recommendations: `recommender.iamPolicyRecommendations.list` (role `roles/recommender.iamViewer`)
+- Cloud Asset IAM search: `cloudasset.assets.searchAllIamPolicies` (role `roles/cloudasset.viewer`)
+- Role expansion for AI classification: `iam.roles.get`
+ - Auto-enabling APIs (always attempted): `serviceusage.services.enable`
+
+## Quick Start (GCP)
+
+```bash
+# Login
+gcloud auth login
+
+# Optional: set a default project
+gcloud config set project <PROJECT_ID>
+
+# Analyze the current project
+python3 gcp_iam_review.py
+
+# Analyze specific projects
+python3 gcp_iam_review.py --project <PROJECT_ID> --project <PROJECT_ID_2>
+
+# Analyze the whole organization
+python3 gcp_iam_review.py --organization <ORG_ID> --quota-project <BILLING_OR_QUOTA_PROJECT>
+
+# JSON output (for tooling)
+python3 gcp_iam_review.py --project <PROJECT_ID> --json > gcp_results.json
+
+# Flag domain-wide grants outside your company domains
+python3 gcp_iam_review.py --project <PROJECT_ID> --allowed-domain example.com --allowed-domain example.org
+
+# Disable AI classification (faster, no external call)
+python3 gcp_iam_review.py --project <PROJECT_ID> --no-ai
+```
