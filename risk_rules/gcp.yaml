@@ -1,0 +1,165 @@
+## Rule schema version (used by humans; runtime currently expects v1)
+version: 1
+
+## Cloud provider these rules apply to
+provider: gcp
+
+## Permission name suffixes that are always privilege/secret sensitive => `critical`.
+## Matching is case-insensitive in the classifier.
+critical_suffixes:
+  - .actas
+  - .getaccesstoken
+  - .signblob
+  - .signjwt
+  - .setIamPolicy
+
+## Exact permissions that are always `critical`.
+critical_exact:
+  - cloudfunctions.functions.sourceCodeSet
+  - cloudkms.cryptoKeyVersions.useToDecrypt
+  - cloudkms.cryptoKeyVersions.useToDecryptViaDelegation
+  - iam.serviceAccountKeys.create
+  - iam.serviceAccountKeys.createExternalAccountKey
+  - iam.serviceAccounts.actAs
+  - iam.serviceAccounts.getAccessToken
+  - iam.serviceAccounts.setIamPolicy
+  - iam.serviceAccounts.signBlob
+  - iam.serviceAccounts.signJwt
+  - resourcemanager.folders.setIamPolicy
+  - resourcemanager.organizations.setIamPolicy
+  - resourcemanager.projects.setIamPolicy
+  - secretmanager.versions.access
+  - storage.hmacKeys.create
+
+## Exact permissions that are always `low` (used to override broader heuristics).
+low_exact:
+  - secretmanager.locations.get
+  - secretmanager.locations.list
+  - secretmanager.secrets.get
+  - secretmanager.secrets.list
+  - secretmanager.versions.get
+  - secretmanager.versions.list
+
+## Verbs treated as read/discovery (`low`) by default.
+low_verbs: [describe, fetch, get, list, query, read, search, batchRead]
+## Verbs treated as operational/destructive (`medium`) by default.
+## These often stop/start/cancel/delete resources without being direct privilege escalation.
+medium_verbs:
+  - cancel
+  - deactivate
+  - delete
+  - destroy
+  - disable
+  - explain
+  - invalidate
+  - pause
+  - predict
+  - remove
+  - restart
+  - resume
+  - start
+  - stop
+  - suspend
+  - undeploy
+
+## Verbs treated as write/privilege-impacting (`high`) by default.
+high_verbs:
+  - add
+  - approve
+  - attach
+  - bind
+  - connect
+  - create
+  - deploy
+  - enable
+  - execute
+  - export
+  - import
+  - insert
+  - invoke
+  - login
+  - mutate
+  - patch
+  - reset
+  - rotate
+  - run
+  - set
+  - tag
+  - untag
+  - update
+  - upload
+  - write
+
+## When a permission uses a write-like verb (high_verbs), it is downgraded to `medium`
+## unless the permission name contains one of these keywords.
+## This keeps `high` for dangerous writes (IAM/boundaries/keys/secrets/data) while
+## making operational writes less noisy.
+## Matching is case-insensitive in the classifier.
+dangerous_write_keywords:
+  - iampolicy
+  - setiampolicy
+  - policy
+  - role
+  - roles
+  - secret
+  - secrets
+  - token
+  - credential
+  - password
+  - key
+  - keys
+  - serviceaccount
+  - serviceaccounts
+  - kms
+  - cryptokey
+  - decrypt
+  - encrypt
+  - sign
+  - sourcecode
+
+## Special handling for IAM custom role management (iam.roles.*)
+iam_roles_critical_verbs: [create, update, patch]
+iam_roles_medium_verbs: [delete, undelete]
+
+## Suffix overrides that force `medium` (unless the permission clearly touches secrets/keys/policy).
+override_medium_suffixes:
+  - .createtagbinding
+  - .deletetagbinding
+  - .setlabels
+  - .updatetag
+  - .usereadonly
+  # Common "safe-ish" operational actions we still treat as `medium`.
+  - .validate
+  - .test
+  - .simulate
+  - .preview
+  - .calculate
+  - .calculatecoverage
+  - .summarize
+  - .summarizeall
+  - .translate
+  - .diagnose
+  - .wait
+  - .report
+  - .restore
+  - .rollback
+  - .purge
+
+## Prefix overrides that can force `medium` (together with the suffix-update constraint below).
+override_medium_prefixes:
+  - recommender.
+
+## Keywords that indicate a read action likely exposes secrets/credentials/keys.
+## If a read verb matches low_verbs but the permission contains these, it becomes `high`.
+sensitive_read_keywords:
+  - apikeys.
+  - serviceaccountkeys
+  - getwithsecret
+  - listwithsecrets
+  - .accesssecretversion
+  - .getsecret
+  - .listsecrets
+  - .listkeys
+  - .getkey
+
+

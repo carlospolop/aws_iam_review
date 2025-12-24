@@ -10,156 +10,23 @@ import yaml
 
 
 RISK_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+RISK_LEVELS = ("low", "medium", "high", "critical")
 
 
-def _split_perm_list_entry(entry: str) -> list[str]:
-    return [token.strip() for token in entry.split(",") if token.strip()]
+def _repo_root() -> str:
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-@dataclass(frozen=True)
-class HintSets:
-    sensitive: set[str]
-    privesc: set[str]
-    sensitive_lower: set[str]
-    privesc_lower: set[str]
+def _rules_dir() -> str:
+    return os.path.join(_repo_root(), "risk_rules")
 
 
-def load_hint_sets_aws(path: str = "sensitive_permissions.yaml") -> HintSets:
-    if not os.path.exists(path):
-        return HintSets(sensitive=set(), privesc=set(), sensitive_lower=set(), privesc_lower=set())
-
+def _load_yaml(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
-
-    sensitive: set[str] = set()
-    privesc: set[str] = set()
     if not isinstance(data, dict):
-        return HintSets(
-            sensitive=sensitive,
-            privesc=privesc,
-            sensitive_lower={p.lower() for p in sensitive},
-            privesc_lower={p.lower() for p in privesc},
-        )
-
-    for _, service_data in data.items():
-        if not isinstance(service_data, dict):
-            continue
-        for key, dest in (
-            ("sensitive", sensitive),
-            ("privesc", privesc),
-            ("pivesc", privesc),  # typo in source file
-        ):
-            values = service_data.get(key)
-            if not values:
-                continue
-            if isinstance(values, str):
-                values = [values]
-            if not isinstance(values, list):
-                continue
-            for entry in values:
-                if not isinstance(entry, str):
-                    continue
-                perms = _split_perm_list_entry(entry)
-                # `privesc` entries often represent multi-permission chains separated by commas.
-                # Only promote to "privesc single-permission hint" when it's exactly one action.
-                if key in ("privesc", "pivesc") and len(perms) != 1:
-                    continue
-                for perm in perms:
-                    dest.add(perm)
-
-    return HintSets(
-        sensitive=sensitive,
-        privesc=privesc,
-        sensitive_lower={p.lower() for p in sensitive},
-        privesc_lower={p.lower() for p in privesc},
-    )
-
-
-def load_hint_sets_gcp(path: str = "gcp_sensitive_permissions.yaml") -> HintSets:
-    if not os.path.exists(path):
-        return HintSets(sensitive=set(), privesc=set(), sensitive_lower=set(), privesc_lower=set())
-
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-
-    sensitive: set[str] = set()
-    privesc: set[str] = set()
-    if not isinstance(data, dict):
-        return HintSets(
-            sensitive=sensitive,
-            privesc=privesc,
-            sensitive_lower={p.lower() for p in sensitive},
-            privesc_lower={p.lower() for p in privesc},
-        )
-
-    for _, service_data in data.items():
-        if not isinstance(service_data, dict):
-            continue
-        for key, dest in (("sensitive", sensitive), ("privesc", privesc)):
-            values = service_data.get(key)
-            if not values:
-                continue
-            if isinstance(values, str):
-                values = [values]
-            if not isinstance(values, list):
-                continue
-            for entry in values:
-                if not isinstance(entry, str):
-                    continue
-                perms = _split_perm_list_entry(entry)
-                if key == "privesc" and len(perms) != 1:
-                    continue
-                for perm in perms:
-                    dest.add(perm)
-
-    return HintSets(
-        sensitive=sensitive,
-        privesc=privesc,
-        sensitive_lower={p.lower() for p in sensitive},
-        privesc_lower={p.lower() for p in privesc},
-    )
-
-
-def load_hint_sets_azure(path: str = "azure_sensitive_permissions.yaml") -> HintSets:
-    if not os.path.exists(path):
-        return HintSets(sensitive=set(), privesc=set(), sensitive_lower=set(), privesc_lower=set())
-
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-
-    sensitive: set[str] = set()
-    privesc: set[str] = set()
-    if not isinstance(data, dict):
-        return HintSets(
-            sensitive=sensitive,
-            privesc=privesc,
-            sensitive_lower={p.lower() for p in sensitive},
-            privesc_lower={p.lower() for p in privesc},
-        )
-
-    for _, service_data in data.items():
-        if not isinstance(service_data, dict):
-            continue
-        for key, dest in (("sensitive", sensitive), ("privesc", privesc), ("pivesc", privesc)):
-            values = service_data.get(key)
-            if not values:
-                continue
-            if isinstance(values, str):
-                values = [values]
-            if not isinstance(values, list):
-                continue
-            for entry in values:
-                if not isinstance(entry, str):
-                    continue
-                for perm in _split_perm_list_entry(entry):
-                    dest.add(perm)
-
-    return HintSets(
-        sensitive=sensitive,
-        privesc=privesc,
-        sensitive_lower={p.lower() for p in sensitive},
-        privesc_lower={p.lower() for p in privesc},
-    )
+        raise ValueError(f"Invalid YAML mapping in {path}")
+    return data
 
 
 def load_aws_permissions_from_managed_policies(path: str) -> set[str]:
@@ -180,7 +47,6 @@ def load_aws_permissions_from_managed_policies(path: str) -> set[str]:
         for action in actions:
             if isinstance(action, str) and action.strip():
                 permissions.add(action.strip())
-
     return permissions
 
 
@@ -199,8 +65,6 @@ def load_azure_permissions_from_provider_operations(path: str) -> set[str]:
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    # Dataset format: a list of provider objects. The granular permissions are in the nested
-    # `operations` arrays (each element has a `name` like `Microsoft.X/.../read|write|delete|action`).
     permissions: set[str] = set()
 
     def extract_from_operations_list(ops) -> None:
@@ -228,181 +92,229 @@ def load_azure_permissions_from_provider_operations(path: str) -> set[str]:
     return permissions
 
 
-_AWS_CRITICAL_EXACT = {
-    # Identity/permission escalation primitives.
-    "iam:PassRole",
-    # Execute-as-role primitives (common privesc vectors).
-    "ssm:SendCommand",
-    "ssm:StartSession",
-    "ssm:ResumeSession",
-    "ssm:TerminateSession",
-    "ecs:ExecuteCommand",
-    "lambda:UpdateFunctionCode",
-    "lambda:UpdateFunctionConfiguration",
-    "sagemaker:CreatePresignedNotebookInstanceUrl",
-    # Instance-profile attachment (execute as instance role).
-    "ec2:AssociateIamInstanceProfile",
-    "ec2:ReplaceIamInstanceProfileAssociation",
-    # Resource policy that can directly grant broad access (explicitly treated as critical by request).
-    "s3:PutBucketPolicy",
-    # Explicit escalation-by-secret access (requested).
-    "secretsmanager:GetSecretValue",
-}
-
-_AWS_SENSITIVE_READ_SERVICES = {
-    "secretsmanager",
-    "ssm",
-    "kms",
-    "s3",
-    "ecr",
-    "codecommit",
-    "codestar-connections",
-}
-
-_AWS_S3_DATA_READ_VERBS = {
-    "GetObject",
-    "GetObjectAcl",
-    "GetObjectAttributes",
-    "GetObjectTagging",
-    "GetObjectVersion",
-    "GetObjectVersionAcl",
-    "GetObjectVersionAttributes",
-    "GetObjectVersionTagging",
-    "ListBucket",
-    "ListBucketMultipartUploads",
-    "ListBucketVersions",
-    "ListMultipartUploadParts",
-    "ListObjects",
-    "ListObjectsV2",
-}
-
-_AWS_S3_DATA_WRITE_VERBS = {
-    "PutObject",
-    "PutObjectAcl",
-    "PutObjectTagging",
-    "PutObjectVersionAcl",
-    "PutObjectVersionTagging",
-    "DeleteObject",
-    "DeleteObjectVersion",
-    "AbortMultipartUpload",
-    "RestoreObject",
-    "ReplicateObject",
-}
-
-_AWS_SENSITIVE_READ_SUBSTRINGS = (
-    "Secret",
-    "Password",
-    "Credential",
-    "AccessKey",
-    "Token",
-    "PrivateKey",
-    "Certificate",
-    "Authorization",
-    "Decrypt",
-    "Plaintext",
-    "GetAuthorizationToken",
-    "GetSecretValue",
-    "GetParameters",
-    "GetParameter",
-    "GetObject",
-    "GetObjectAcl",
-    "GetObjectAttributes",
-    "GetBucketPolicy",
-    "GetBucketAcl",
-    "GetRepositoryPolicy",
-    # Sensitive configs / source / infra definitions.
-    "Template",
-    "Configuration",
-    "UserData",
-    "DistributionConfig",
-)
-
-_AWS_IAM_CRITICAL_VERBS = {
-    # Trust / permissions changes.
-    "UpdateAssumeRolePolicy",
-    "PutRolePolicy",
-    "PutUserPolicy",
-    "PutGroupPolicy",
-    "AttachRolePolicy",
-    "AttachUserPolicy",
-    "AttachGroupPolicy",
-    "DetachRolePolicy",
-    "DetachUserPolicy",
-    "DetachGroupPolicy",
-    "SetDefaultPolicyVersion",
-    "CreatePolicyVersion",
-    # Identity membership / boundaries.
-    "AddUserToGroup",
-    "PutRolePermissionsBoundary",
-    "PutUserPermissionsBoundary",
-    "DeleteRolePermissionsBoundary",
-    "DeleteUserPermissionsBoundary",
-    # Credential creation / takeover.
-    "CreateAccessKey",
-    "UpdateAccessKey",
-    "CreateLoginProfile",
-    "UpdateLoginProfile",
-    "CreateServiceSpecificCredential",
-    "ResetServiceSpecificCredential",
-    # Instance-profile role attachment (execute as role).
-    "AddRoleToInstanceProfile",
-}
-
-_AWS_READ_PREFIXES = ("Get", "List", "Describe", "View")
-_AWS_DELETE_PREFIXES = ("Delete", "Remove", "Destroy")
-_AWS_MEDIUM_PREFIXES = (
-    "Delete",
-    "Remove",
-    "Destroy",
-    "Terminate",
-    "Suspend",
-    "Pause",
-    # Operational impact (usually not sensitive, not privesc on its own).
-    "Start",
-    "Stop",
-    "Reboot",
-    "Restart",
-    "Resume",
-    "Enable",
-    "Disable",
-    # Metadata-only changes.
-    "Tag",
-    "Untag",
-)
-_AWS_HIGH_PREFIXES = (
-    "Put",
-    "Create",
-    "Update",
-    "Write",
-    "Start",
-    "Stop",
-    "Run",
-    "Invoke",
-    "Attach",
-    "Detach",
-    "Modify",
-    "Enable",
-    "Disable",
-    "Associate",
-    "Disassociate",
-    "Authorize",
-    "Revoke",
-    "Register",
-    "Deregister",
-    "Upload",
-    "Download",
-    "Import",
-    "Export",
-    "Connect",
-    "Login",
-    "Reset",
-    "Rotate",
-    "Generate",
-    "Assume",  # e.g., "sts:AssumeRole" (treated as high by default)
-)
+@dataclass(frozen=True)
+class AwsRules:
+    critical_exact: set[str]
+    low_exact: set[str]
+    high_exact: set[str]
+    critical_exact_lower: set[str]
+    low_exact_lower: set[str]
+    high_exact_lower: set[str]
+    benign_write_medium_action_re: tuple[re.Pattern[str], ...]
+    write_like_prefix_re: re.Pattern[str]
+    dangerous_write_re: re.Pattern[str]
+    sensitive_read_substrings: tuple[str, ...]
+    sensitive_read_substrings_lower: tuple[str, ...]
+    iam_critical_verbs: set[str]
+    read_prefixes: tuple[str, ...]
+    medium_prefixes: tuple[str, ...]
+    high_prefixes: tuple[str, ...]
+    read_prefixes_lower: tuple[str, ...]
+    medium_prefixes_lower: tuple[str, ...]
+    high_prefixes_lower: tuple[str, ...]
+    resource_policy_verbs: set[str]
+    resource_policy_suffixes: tuple[str, ...]
+    resource_policy_prefixes: tuple[str, ...]
+    resource_policy_verbs_lower: set[str]
+    resource_policy_suffixes_lower: tuple[str, ...]
+    resource_policy_prefixes_lower: tuple[str, ...]
 
 
-def aws_regex_classify(action: str, hints: HintSets) -> Optional[str]:
+@dataclass(frozen=True)
+class GcpRules:
+    critical_suffixes: tuple[str, ...]
+    critical_exact: set[str]
+    low_exact: set[str]
+    low_verbs: set[str]
+    medium_verbs: set[str]
+    high_verbs: set[str]
+    iam_roles_critical_verbs: set[str]
+    iam_roles_medium_verbs: set[str]
+    override_medium_suffixes: tuple[str, ...]
+    override_medium_prefixes: tuple[str, ...]
+    sensitive_read_keywords: tuple[str, ...]
+    dangerous_write_keywords: tuple[str, ...]
+    dangerous_write_keywords_lower: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class AzureRules:
+    credential_action_re: re.Pattern[str]
+    storage_insights_child_re: re.Pattern[str]
+    register_like_action_re: re.Pattern[str]
+    provider_diagnostic_settings_write_re: re.Pattern[str]
+    boundary_keywords: tuple[str, ...]
+    cost_mgmt_exact_medium: set[str]
+    insights_exclude_keywords: tuple[str, ...]
+    insights_medium_prefixes_write: tuple[str, ...]
+    insights_medium_prefixes_write_or_action: tuple[str, ...]
+    insights_activitylogalerts_prefix: str
+    insights_alertrules_prefix: str
+    medium_write_action_provider_prefixes: tuple[str, ...]
+    resourcehealth_events_action_prefix: str
+    billing_provider_prefix: str
+    billing_exclude_keywords: tuple[str, ...]
+    appinsights_component_prefix: str
+    appinsights_exclude_keywords: tuple[str, ...]
+    dangerous_write_keywords: tuple[str, ...]
+    dangerous_write_keywords_lower: tuple[str, ...]
+
+
+_AWS_RULES: Optional[AwsRules] = None
+_GCP_RULES: Optional[GcpRules] = None
+_AZURE_RULES: Optional[AzureRules] = None
+
+
+def load_rules(provider: str):
+    global _AWS_RULES, _GCP_RULES, _AZURE_RULES
+    provider = provider.lower().strip()
+    if provider == "aws":
+        if _AWS_RULES is not None:
+            return _AWS_RULES
+        data = _load_yaml(os.path.join(_rules_dir(), "aws.yaml"))
+        critical_exact = set(data.get("critical_exact") or [])
+        low_exact = set(data.get("low_exact") or [])
+        high_exact = set(data.get("high_exact") or [])
+        sensitive_read_substrings = tuple(data.get("sensitive_read_substrings") or [])
+        read_prefixes = tuple(data.get("read_prefixes") or [])
+        medium_prefixes = tuple(data.get("medium_prefixes") or [])
+        high_prefixes = tuple(data.get("high_prefixes") or [])
+        resource_policy_verbs = set(data.get("resource_policy_verbs") or [])
+        resource_policy_suffixes = tuple(data.get("resource_policy_suffixes") or [])
+        resource_policy_prefixes = tuple(data.get("resource_policy_prefixes") or [])
+
+        write_like_prefix_regex = data.get("write_like_prefix_regex") or data.get("bulk_medium_write_prefix_regex") or r"^$"
+        dangerous_write_regex = data.get("dangerous_write_regex") or data.get("service_medium_dangerous_regex") or r"$^"
+
+        _AWS_RULES = AwsRules(
+            critical_exact=critical_exact,
+            low_exact=low_exact,
+            high_exact=high_exact,
+            critical_exact_lower={x.lower() for x in critical_exact},
+            low_exact_lower={x.lower() for x in low_exact},
+            high_exact_lower={x.lower() for x in high_exact},
+            benign_write_medium_action_re=tuple(
+                re.compile(p, re.IGNORECASE) for p in (data.get("benign_write_medium_action_regex") or [])
+            ),
+            write_like_prefix_re=re.compile(write_like_prefix_regex, re.IGNORECASE),
+            dangerous_write_re=re.compile(dangerous_write_regex, re.IGNORECASE),
+            sensitive_read_substrings=sensitive_read_substrings,
+            sensitive_read_substrings_lower=tuple(s.lower() for s in sensitive_read_substrings),
+            iam_critical_verbs=set(data.get("iam_critical_verbs") or []),
+            read_prefixes=read_prefixes,
+            medium_prefixes=medium_prefixes,
+            high_prefixes=high_prefixes,
+            read_prefixes_lower=tuple(p.lower() for p in read_prefixes),
+            medium_prefixes_lower=tuple(p.lower() for p in medium_prefixes),
+            high_prefixes_lower=tuple(p.lower() for p in high_prefixes),
+            resource_policy_verbs=resource_policy_verbs,
+            resource_policy_suffixes=resource_policy_suffixes,
+            resource_policy_prefixes=resource_policy_prefixes,
+            resource_policy_verbs_lower={v.lower() for v in resource_policy_verbs},
+            resource_policy_suffixes_lower=tuple(s.lower() for s in resource_policy_suffixes),
+            resource_policy_prefixes_lower=tuple(p.lower() for p in resource_policy_prefixes),
+        )
+        return _AWS_RULES
+    if provider == "gcp":
+        if _GCP_RULES is not None:
+            return _GCP_RULES
+        data = _load_yaml(os.path.join(_rules_dir(), "gcp.yaml"))
+        dangerous_write_keywords = tuple(data.get("dangerous_write_keywords") or [])
+        low_verbs = {str(v).lower() for v in (data.get("low_verbs") or [])}
+        medium_verbs = {str(v).lower() for v in (data.get("medium_verbs") or [])}
+        high_verbs = {str(v).lower() for v in (data.get("high_verbs") or [])}
+        iam_roles_critical_verbs = {str(v).lower() for v in (data.get("iam_roles_critical_verbs") or [])}
+        iam_roles_medium_verbs = {str(v).lower() for v in (data.get("iam_roles_medium_verbs") or [])}
+        _GCP_RULES = GcpRules(
+            critical_suffixes=tuple(data.get("critical_suffixes") or []),
+            critical_exact=set(data.get("critical_exact") or []),
+            low_exact=set(data.get("low_exact") or []),
+            low_verbs=low_verbs,
+            medium_verbs=medium_verbs,
+            high_verbs=high_verbs,
+            iam_roles_critical_verbs=iam_roles_critical_verbs,
+            iam_roles_medium_verbs=iam_roles_medium_verbs,
+            override_medium_suffixes=tuple(data.get("override_medium_suffixes") or []),
+            override_medium_prefixes=tuple(data.get("override_medium_prefixes") or []),
+            sensitive_read_keywords=tuple(data.get("sensitive_read_keywords") or []),
+            dangerous_write_keywords=dangerous_write_keywords,
+            dangerous_write_keywords_lower=tuple(k.lower() for k in dangerous_write_keywords),
+        )
+        return _GCP_RULES
+    if provider == "azure":
+        if _AZURE_RULES is not None:
+            return _AZURE_RULES
+        data = _load_yaml(os.path.join(_rules_dir(), "azure.yaml"))
+        dangerous_write_keywords = tuple(data.get("dangerous_write_keywords") or [])
+        _AZURE_RULES = AzureRules(
+            credential_action_re=re.compile(data.get("credential_action_regex") or r"$^", re.IGNORECASE),
+            storage_insights_child_re=re.compile(data.get("storage_insights_child_regex") or r"$^", re.IGNORECASE),
+            register_like_action_re=re.compile(data.get("register_like_action_regex") or r"$^", re.IGNORECASE),
+            provider_diagnostic_settings_write_re=re.compile(
+                data.get("provider_diagnostic_settings_write_regex") or r"$^", re.IGNORECASE
+            ),
+            boundary_keywords=tuple(data.get("boundary_keywords") or []),
+            cost_mgmt_exact_medium=set(data.get("cost_mgmt_exact_medium") or []),
+            insights_exclude_keywords=tuple(data.get("insights_exclude_keywords") or []),
+            insights_medium_prefixes_write=tuple(data.get("insights_medium_prefixes_write") or []),
+            insights_medium_prefixes_write_or_action=tuple(data.get("insights_medium_prefixes_write_or_action") or []),
+            insights_activitylogalerts_prefix=str(data.get("insights_activitylogalerts_prefix") or ""),
+            insights_alertrules_prefix=str(data.get("insights_alertrules_prefix") or ""),
+            medium_write_action_provider_prefixes=tuple(data.get("medium_write_action_provider_prefixes") or []),
+            resourcehealth_events_action_prefix=str(data.get("resourcehealth_events_action_prefix") or ""),
+            billing_provider_prefix=str(data.get("billing_provider_prefix") or ""),
+            billing_exclude_keywords=tuple(data.get("billing_exclude_keywords") or []),
+            appinsights_component_prefix=str(data.get("appinsights_component_prefix") or ""),
+            appinsights_exclude_keywords=tuple(data.get("appinsights_exclude_keywords") or []),
+            dangerous_write_keywords=dangerous_write_keywords,
+            dangerous_write_keywords_lower=tuple(k.lower() for k in dangerous_write_keywords),
+        )
+        return _AZURE_RULES
+    raise ValueError(f"Unknown provider: {provider}")
+
+
+def _aws_is_nondangerous_write(action: str, rules: AwsRules) -> bool:
+    if ":" not in action:
+        return False
+    _, verb = action.split(":", 1)
+    verb = verb.strip()
+    if not rules.write_like_prefix_re.match(verb):
+        return False
+    if rules.dangerous_write_re.search(verb):
+        return False
+    return True
+
+
+def _startswith_any_ci(text: str, prefixes_lower: tuple[str, ...]) -> bool:
+    t = text.lower()
+    return t.startswith(prefixes_lower)
+
+
+def aws_override_level(action: str, rules: AwsRules) -> Optional[str]:
+    action = action.strip()
+    if not action:
+        return None
+
+    action_lower = action.lower()
+
+    if action_lower in rules.low_exact_lower:
+        return "low"
+    if action_lower in rules.critical_exact_lower:
+        return "critical"
+    if action_lower in rules.high_exact_lower:
+        return "high"
+
+    if any(r.match(action) for r in rules.benign_write_medium_action_re):
+        return "medium"
+
+    # Global rule: downgrade any non-dangerous write-like action to medium.
+    if _aws_is_nondangerous_write(action, rules):
+        return "medium"
+
+    return None
+
+
+def aws_regex_classify(action: str, rules: AwsRules) -> Optional[str]:
     action = action.strip()
     if not action:
         return None
@@ -410,8 +322,9 @@ def aws_regex_classify(action: str, hints: HintSets) -> Optional[str]:
     if action == "*" or action.endswith(":*"):
         return "critical"
 
-    if action in _AWS_CRITICAL_EXACT:
-        return "critical"
+    override = aws_override_level(action, rules)
+    if override is not None:
+        return override
 
     if ":" not in action:
         return None
@@ -419,209 +332,120 @@ def aws_regex_classify(action: str, hints: HintSets) -> Optional[str]:
     service, verb = action.split(":", 1)
     service = service.lower().strip()
     verb = verb.strip()
+    verb_lower = verb.lower()
 
     if service == "iam":
-        if verb.startswith(_AWS_READ_PREFIXES):
+        if _startswith_any_ci(verb, rules.read_prefixes_lower):
             return "low"
-        # Keep IAM `critical` extremely narrow: only permissions that directly change
-        # identities/permissions/trust/credentials (i.e., privilege escalation primitives).
-        if verb in _AWS_IAM_CRITICAL_VERBS or verb == "PassRole":
+        if verb in rules.iam_critical_verbs or verb_lower == "passrole":
             return "critical"
-        if verb.startswith(_AWS_MEDIUM_PREFIXES):
-            return "medium"
         return "high"
 
-    if service == "sts" and verb.startswith("AssumeRole"):
+    if service == "sts" and verb_lower.startswith("assumerole"):
         return "critical"
 
-    # AWS "put policy"-style privilege escalation (resource-based policies).
-    # This is intentionally narrow to avoid things like `autoscaling:PutScalingPolicy`.
-    if verb in (
-        "PutBucketPolicy",
-        "PutAccessPointPolicy",
-        "PutMultiRegionAccessPointPolicy",
-        "SetRepositoryPolicy",
-        "PutRepositoryPolicy",
-        "PutRegistryPolicy",
-        "PutResourcePolicy",
-    ) or (
-        verb.endswith(("ResourcePolicy", "RepositoryPolicy", "BucketPolicy", "RegistryPolicy", "AccessPointPolicy"))
-        and verb.startswith(("Put", "Set"))
+    if verb_lower in rules.resource_policy_verbs_lower or (
+        verb_lower.endswith(rules.resource_policy_suffixes_lower) and verb_lower.startswith(rules.resource_policy_prefixes_lower)
     ):
         return "critical"
 
-    # Operational and destructive actions first: these are not privilege escalation on their own.
-    if verb.startswith(_AWS_MEDIUM_PREFIXES):
+    # S3 is special: only object content read/write are treated as high by default.
+    # Bucket listing and other configuration writes are not treated as data-plane high.
+    # Policy/ACL boundary-changing operations should be marked as critical via exact matches.
+    if service == "s3":
+        if verb_lower in ("getobject", "putobject"):
+            return "high"
+        if verb_lower.startswith(rules.medium_prefixes_lower):
+            return "medium"
+        if verb_lower.startswith(rules.read_prefixes_lower) or verb_lower.startswith("batchget"):
+            return "low"
+        if verb_lower.startswith(rules.high_prefixes_lower):
+            return "medium"
+        return None
+
+    if verb_lower.startswith(rules.medium_prefixes_lower):
         return "medium"
 
-    if verb.startswith(_AWS_READ_PREFIXES):
-        if service == "s3" and verb in _AWS_S3_DATA_READ_VERBS:
-            return "high"
-        if service in _AWS_SENSITIVE_READ_SERVICES:
-            return "high"
-        if any(sub in verb for sub in _AWS_SENSITIVE_READ_SUBSTRINGS):
+    if verb_lower.startswith(rules.read_prefixes_lower) or verb_lower.startswith("batchget"):
+        if any(sub in verb_lower for sub in rules.sensitive_read_substrings_lower):
             return "high"
         return "low"
 
-    if service == "s3" and verb in _AWS_S3_DATA_WRITE_VERBS:
-        if verb.startswith(_AWS_DELETE_PREFIXES):
-            return "medium"
-        return "high"
-
-    if verb.startswith(_AWS_HIGH_PREFIXES):
+    if verb_lower.startswith(rules.high_prefixes_lower):
         return "high"
 
     return None
 
 
-_GCP_CRITICAL_SUFFIXES = (
-    ".actAs",
-    ".actas",
-    ".getAccessToken",
-    ".getaccesstoken",
-    ".signBlob",
-    ".signblob",
-    ".signJwt",
-    ".signjwt",
-)
-
-_GCP_CRITICAL_EXACT = {
-    "iam.serviceAccountKeys.create",
-    "iam.serviceAccountKeys.createExternalAccountKey",
-    "iam.serviceAccounts.signJwt",
-    "iam.serviceAccounts.signBlob",
-    "iam.serviceAccounts.getAccessToken",
-    "iam.serviceAccounts.actAs",
-    "cloudfunctions.functions.sourceCodeSet",
-    "resourcemanager.projects.setIamPolicy",
-    "resourcemanager.folders.setIamPolicy",
-    "resourcemanager.organizations.setIamPolicy",
-    "iam.serviceAccounts.setIamPolicy",
-}
-
-_GCP_BUCKET_READ_PREFIXES = (
-    "storage.objects.get",
-    "storage.objects.list",
-    "storage.objects.read",
-)
-
-_GCP_BUCKET_WRITE_PREFIXES = (
-    "storage.objects.create",
-    "storage.objects.update",
-    "storage.objects.delete",
-)
-
-_GCP_LOW_VERBS = {"get", "list", "read", "search", "query", "fetch", "describe"}
-_GCP_DELETE_PREFIXES = ("delete", "remove", "destroy")
-_GCP_MEDIUM_VERBS = {
-    "delete",
-    "remove",
-    "destroy",
-    "disable",
-    "stop",
-    "cancel",
-    "deactivate",
-    "pause",
-    "suspend",
-    # Operational impact / execution control.
-    "start",
-    "restart",
-    "resume",
-    # Metadata-only changes.
-    "tag",
-    "untag",
-}
-_GCP_HIGH_VERBS = {
-    "create",
-    "update",
-    "patch",
-    "set",
-    "write",
-    "insert",
-    "add",
-    "bind",
-    "attach",
-    "upload",
-    "deploy",
-    "execute",
-    "run",
-    "mutate",
-    "approve",
-    "import",
-    "export",
-    "connect",
-    "login",
-    "invoke",
-    "rotate",
-    "reset",
-    "enable",
-}
-
-
-def _gcp_is_sensitive_read(permission_lower: str, verb_lower: str, hints: HintSets) -> bool:
-    # IAM policy reads are generally discovery (not sensitive data access).
-    if verb_lower.endswith("iampolicy") or verb_lower == "getiampolicy" or verb_lower == "listiampolicies":
+def _gcp_is_sensitive_read(permission_lower: str, rules: GcpRules) -> bool:
+    # IAM policy reads are discovery, not secrets/data by themselves.
+    if "iampolicy" in permission_lower or "setiampolicy" in permission_lower:
         return False
-
-    # Explicit secret/key material exposures.
-    if "getwithsecret" in permission_lower or "listwithsecrets" in permission_lower:
-        return True
-    if ".accesssecretversion" in permission_lower or ".getsecret" in permission_lower or ".listsecrets" in permission_lower:
-        return True
-
-    # API keys and service account keys are sensitive even for reads/listing.
-    if permission_lower.startswith("apikeys.") or ".apikeys." in permission_lower:
-        return True
-    if "serviceaccountkeys" in permission_lower:
-        return True
-    if verb_lower.startswith("listkeys") or verb_lower.startswith("getkey") or verb_lower.endswith("listkeys"):
-        return True
-    if ".listkeys" in permission_lower or ".getkey" in permission_lower:
-        return True
-
-    # Data-plane reads (common cases).
-    if permission_lower.startswith("storage.objects.") and verb_lower.startswith(("get", "list", "read")):
-        return True
-    if permission_lower.startswith("bigquery.") and verb_lower.startswith(("getdata", "getqueryresults", "read")):
-        return True
-    if verb_lower in ("getdata", "getqueryresults", "readrows", "getfilecontents"):
-        return True
-    if permission_lower.startswith("sourcerepo.") and verb_lower.startswith(("get", "list", "read")):
-        return True
-    if permission_lower.startswith("artifactregistry.") and (
-        "download" in verb_lower or verb_lower.startswith(("get", "list", "read"))
-    ):
-        return True
-
-    # Generic sensitive keywords (kept narrow to avoid false positives like "cryptoKeys").
-    if any(k in permission_lower for k in ("secret", "password", "token", "credential")):
-        return True
-
-    return False
+    return any(k in permission_lower for k in rules.sensitive_read_keywords)
 
 
-def gcp_regex_classify(permission: str, hints: HintSets) -> Optional[str]:
+def _gcp_is_dangerous_write(permission_lower: str, rules: GcpRules) -> bool:
+    return any(k in permission_lower for k in rules.dangerous_write_keywords_lower)
+
+
+def gcp_override_level(permission: str, rules: GcpRules) -> Optional[str]:
+    permission = permission.strip()
+    if not permission:
+        return None
+    if permission in rules.low_exact:
+        return "low"
+    if permission in rules.critical_exact:
+        return "critical"
+
+    lower = permission.lower()
+    if lower.endswith(rules.override_medium_suffixes):
+        if any(k in lower for k in ("iampolicy", "setiampolicy", "policy", "role", "secret", "token", "credential", "key")):
+            return None
+        return "medium"
+
+    # Keep recommender updates as operational medium without making all recommender.* medium.
+    if any(lower.startswith(p) for p in rules.override_medium_prefixes) and lower.endswith(".update"):
+        if any(k in lower for k in ("iampolicy", "setiampolicy", "policy", "role", "secret", "token", "credential", "key")):
+            return None
+        return "medium"
+
+    return None
+
+
+def gcp_regex_classify(permission: str, rules: GcpRules) -> Optional[str]:
     permission = permission.strip()
     if not permission:
         return None
 
-    if permission in _GCP_CRITICAL_EXACT:
+    override = gcp_override_level(permission, rules)
+    if override is not None:
+        return override
+
+    # Wildcards.
+    if permission == "*" or permission in ("*.*", "*.*.*") or permission.endswith(".*"):
+        return "critical"
+
+    if permission in rules.critical_exact:
         return "critical"
 
     lower = permission.lower()
-    if lower.endswith(_GCP_CRITICAL_SUFFIXES):
+
+    # Hardcoded sensitive permissions (do not rely on YAML prefixes).
+    # Per requirement: treat these specific Storage object permissions as high.
+    if lower in ("storage.objects.get", "storage.objects.create", "storage.objects.delete"):
+        return "high"
+    if lower.endswith(rules.critical_suffixes):
         return "critical"
 
-    # Narrow, high-confidence GCP IAM escalation:
-    # - Per requirement: treat ALL `*.setIamPolicy` as privilege escalation ("gather yourself more permissions").
+    # Per requirement: treat ALL `*.setIamPolicy` as privilege escalation.
     if lower.endswith(".setiampolicy"):
         return "critical"
 
     if lower.startswith("iam.roles."):
         role_verb = lower.rsplit(".", 1)[-1]
-        if role_verb in ("create", "update", "patch"):
+        if role_verb in rules.iam_roles_critical_verbs:
             return "critical"
-        if role_verb in ("delete", "undelete"):
+        if role_verb in rules.iam_roles_medium_verbs:
             return "medium"
 
     if "." not in permission:
@@ -629,56 +453,112 @@ def gcp_regex_classify(permission: str, hints: HintSets) -> Optional[str]:
 
     verb = permission.rsplit(".", 1)[-1].strip()
     verb_lower = verb.lower()
-    if not verb:
+    if not verb_lower:
         return None
 
-    lower = permission.lower()
-    # Bucket data-plane access is always high (read/write objects).
-    if lower.startswith(_GCP_BUCKET_READ_PREFIXES):
-        return "high"
-    if lower.startswith(_GCP_BUCKET_WRITE_PREFIXES):
-        return "medium" if lower.endswith(".delete") else "high"
-
-    if verb_lower in _GCP_MEDIUM_VERBS or any(verb_lower.startswith(v) for v in _GCP_MEDIUM_VERBS):
+    if verb_lower in rules.medium_verbs or any(verb_lower.startswith(v) for v in rules.medium_verbs):
         return "medium"
 
-    if verb_lower in _GCP_LOW_VERBS or any(verb_lower.startswith(v) for v in _GCP_LOW_VERBS):
-        if _gcp_is_sensitive_read(lower, verb_lower, hints):
+    if verb_lower in rules.low_verbs or any(verb_lower.startswith(v) for v in rules.low_verbs):
+        if _gcp_is_sensitive_read(lower, rules):
             return "high"
         return "low"
 
-    if verb_lower in _GCP_HIGH_VERBS or any(verb_lower.startswith(v) for v in _GCP_HIGH_VERBS):
-        return "high"
+    if verb_lower in rules.high_verbs or any(verb_lower.startswith(v) for v in rules.high_verbs):
+        return "high" if _gcp_is_dangerous_write(lower, rules) else "medium"
 
     return None
-
-
-_AZURE_CREDENTIAL_ACTION_RE = re.compile(
-    r"/("
-    r"listsecrets|listkeys|listcredentials|listcredential|listadminkeys|listadminkey|"
-    r"getsecret|getsecrets|getkeys|getkey|getadminkeys|getadminkey|"
-    r"getauthtoken|getaccesstoken|"
-    r"regeneratekey|regeneratekeys|regeneratepassword|"
-    r"generatecredentials|generatecredential|generatekey|generatetoken|"
-    r"listpasswords|listpassword"
-    r")/action$",
-    re.IGNORECASE,
-)
 
 
 def _azure_last_segment(permission: str) -> str:
     return permission.split("/")[-1].strip().lower()
 
 
-def azure_regex_classify(permission: str, hints: HintSets) -> Optional[str]:
+def _azure_contains_boundary_keywords(lower: str, rules: AzureRules) -> bool:
+    return any(k in lower for k in rules.boundary_keywords)
+
+
+def azure_override_level(permission: str, rules: AzureRules) -> Optional[str]:
     permission = permission.strip()
     if not permission:
         return None
 
     lower = permission.lower()
 
-    # Wildcards.
-    if permission == "*" or permission.endswith("/*"):
+    if rules.storage_insights_child_re.match(lower):
+        return "low"
+
+    if lower.startswith("microsoft.storage/storageaccounts/") and lower.endswith("/usages/read"):
+        return "low"
+
+    if rules.register_like_action_re.search(lower):
+        return "medium"
+
+    if rules.provider_diagnostic_settings_write_re.search(lower):
+        return "medium"
+
+    if lower in rules.cost_mgmt_exact_medium:
+        return "medium"
+
+    if lower.startswith("microsoft.insights/"):
+        if _azure_contains_boundary_keywords(lower, rules):
+            return None
+        if any(k in lower for k in rules.insights_exclude_keywords):
+            return None
+
+        if any(lower.startswith(p) for p in rules.insights_medium_prefixes_write) and lower.endswith("/write"):
+            return "medium"
+
+        if any(lower.startswith(p) for p in rules.insights_medium_prefixes_write_or_action) and lower.endswith(("/write", "/action")):
+            return "medium"
+
+        if lower.startswith(rules.insights_activitylogalerts_prefix) and (lower.endswith("/write") or lower.endswith("/activated/action")):
+            return "medium"
+
+        if lower.startswith(rules.insights_alertrules_prefix) and lower.endswith(
+            ("/write", "/activated/action", "/resolved/action", "/throttled/action")
+        ):
+            return "medium"
+
+    if any(lower.startswith(p) for p in rules.medium_write_action_provider_prefixes):
+        last = _azure_last_segment(permission)
+        if last in ("write", "action"):
+            if any(k in lower for k in ("roleassignments", "roledefinitions", "authorization")):
+                return None
+            return "medium"
+
+    if lower.startswith(rules.resourcehealth_events_action_prefix) and lower.endswith("/action"):
+        return "medium"
+
+    if lower.startswith(rules.billing_provider_prefix):
+        if any(k in lower for k in rules.billing_exclude_keywords):
+            return None
+        last = _azure_last_segment(permission)
+        if last in ("write", "action"):
+            return "medium"
+
+    if lower.startswith(rules.appinsights_component_prefix):
+        if any(k in lower for k in rules.appinsights_exclude_keywords):
+            return None
+        last = _azure_last_segment(permission)
+        if last in ("write", "action"):
+            return "medium"
+
+    return None
+
+
+def azure_regex_classify(permission: str, rules: AzureRules) -> Optional[str]:
+    permission = permission.strip()
+    if not permission:
+        return None
+
+    forced = azure_override_level(permission, rules)
+    if forced is not None:
+        return forced
+
+    lower = permission.lower()
+
+    if permission == "*" or permission.endswith("/*") or permission == "*/*":
         return "critical"
 
     last = _azure_last_segment(permission)
@@ -687,59 +567,77 @@ def azure_regex_classify(permission: str, hints: HintSets) -> Optional[str]:
     is_delete = last == "delete"
     is_action = last == "action"
 
-    # RBAC / authorization plane changes.
     if lower.startswith("microsoft.authorization/"):
         if lower.endswith("/roleassignments/write") or lower.endswith("/roledefinitions/write"):
             return "critical"
         if lower.endswith("/elevateaccess/action"):
             return "critical"
 
-    # Storage data-plane (buckets): blob/file/queue/table reads/writes should be high, deletes medium.
+    # Storage data-plane: blob/file/queue/table reads/writes -> high; deletes -> medium.
     if lower.startswith("microsoft.storage/") and any(
         x in lower for x in ("/blobservices/", "/fileservices/", "/queueservices/", "/tableservices/")
     ):
+        if "/providers/microsoft.insights/" in lower:
+            if is_read:
+                return "low"
+            if is_write or is_action:
+                return "medium"
+        if lower.endswith("/usages/read"):
+            return "low"
         if is_delete or "/delete" in lower:
             return "medium"
         if is_read or is_write or is_action:
             return "high"
 
-    # Deletes default to medium.
     if is_delete or "/delete" in lower:
         return "medium"
 
-    # Credentials/secret material exposures (listKeys/listSecrets/etc) are critical.
-    if _AZURE_CREDENTIAL_ACTION_RE.search(lower):
+    if rules.credential_action_re.search(lower):
         return "medium" if is_delete else "critical"
 
-    # Key Vault secrets/keys/certs read access is treated as critical (often yields credentials).
     if lower.startswith("microsoft.keyvault/") and any(x in lower for x in ("/secrets/", "/keys/", "/certificates/")):
         if is_read:
             return "critical"
 
-    # Reads default to low unless sensitive by keyword.
     if is_read:
         return "low"
 
-    # Writes/actions default to high unless clearly operational-only.
     if is_write or is_action:
-        # Identity assignment / RBAC-like changes.
         if "/roleassignments/" in lower or "/roledefinitions/" in lower:
             return "critical"
         if "managedidentity" in lower and ("assign" in lower or "federatedidentitycredentials" in lower):
             return "critical"
-        return "high"
+        if any(k in lower for k in rules.dangerous_write_keywords_lower):
+            return "high"
+        return "medium"
 
     return None
 
 
-def bump_risk(current: str, minimum: str) -> str:
-    return current if RISK_ORDER[current] >= RISK_ORDER[minimum] else minimum
+def classify_permission(provider: str, permission: str, *, unknown_default: str = "high") -> str:
+    provider = provider.lower().strip()
+    permission = (permission or "").strip()
+    if unknown_default not in RISK_LEVELS:
+        raise ValueError(f"unknown_default must be one of {RISK_LEVELS}")
+    if not permission:
+        return unknown_default
+
+    if provider == "aws":
+        category = aws_regex_classify(permission, load_rules("aws"))
+    elif provider == "gcp":
+        category = gcp_regex_classify(permission, load_rules("gcp"))
+    elif provider == "azure":
+        category = azure_regex_classify(permission, load_rules("azure"))
+    else:
+        raise ValueError(f"Unknown provider: {provider}")
+
+    return category or unknown_default
 
 
 def classify_all(
     provider: str,
     permissions: Iterable[str],
-    hints: HintSets,
+    hints=None,  # backwards-compat; ignored
     unknown_default: str = "high",
 ) -> dict[str, list[str]]:
     categories: dict[str, list[str]] = {"low": [], "medium": [], "high": [], "critical": []}
@@ -753,21 +651,70 @@ def classify_all(
             continue
         seen.add(perm)
 
-        if provider == "aws":
-            category = aws_regex_classify(perm, hints)
-        elif provider == "gcp":
-            category = gcp_regex_classify(perm, hints)
-        elif provider == "azure":
-            category = azure_regex_classify(perm, hints)
-        else:
-            raise ValueError(f"Unknown provider: {provider}")
-
-        if category is None:
-            category = unknown_default
-
+        category = classify_permission(provider, perm, unknown_default=unknown_default)
         categories[category].append(perm)
 
-    for key in categories:
-        categories[key].sort()
-
     return categories
+
+
+def candidate_actions(provider: str, risk_levels: Iterable[str]) -> list[str]:
+    """
+    Return a stable, de-duplicated list of *exact* permission strings that are useful
+    to test for the given risk levels.
+
+    Notes:
+    - This is intentionally conservative: it only returns exact strings stored in `risk_rules/*.yaml`.
+    - Wildcards are excluded because downstream callers often use this list for simulation APIs
+      that require concrete action names.
+    """
+    provider = provider.lower().strip()
+    levels = [str(x).strip().lower() for x in risk_levels if str(x).strip()]
+    levels = [x for x in levels if x in RISK_LEVELS]
+    if not levels:
+        return []
+
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add_many(items: Iterable[str]) -> None:
+        for p in items:
+            if not isinstance(p, str):
+                continue
+            p = p.strip()
+            if not p or "*" in p:
+                continue
+            if p in seen:
+                continue
+            seen.add(p)
+            out.append(p)
+
+    if provider == "aws":
+        r = load_rules("aws")
+        if "critical" in levels:
+            add_many(r.critical_exact)
+        if "high" in levels:
+            add_many(r.high_exact)
+        if "low" in levels:
+            add_many(r.low_exact)
+        # Medium has no exact list in our rule format currently.
+        return out
+
+    if provider == "gcp":
+        r = load_rules("gcp")
+        if "critical" in levels:
+            add_many(r.critical_exact)
+        if "low" in levels:
+            add_many(r.low_exact)
+        # High/medium are mostly heuristic/verb-based for GCP rules.
+        return out
+
+    if provider == "azure":
+        r = load_rules("azure")
+        # Azure rules are primarily regex/keyword based; exact lists are optional.
+        if "critical" in levels:
+            add_many(getattr(r, "critical_exact", []) or [])
+        if "low" in levels:
+            add_many(getattr(r, "low_exact", []) or [])
+        return out
+
+    raise ValueError(f"Unknown provider: {provider}")

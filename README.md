@@ -1,206 +1,510 @@
 # Blue Cloud PEASS
 
-Blue Cloud PEASS helps blue teams and auditors quickly identify risky IAM permissions and access patterns across cloud providers.
+![Blue Cloud PEASS](blue-cloudpeass.png)
 
-This repo currently includes:
-- `aws_iam_review.py`: AWS IAM review (unused permissions + risky access)
-- `gcp_iam_review.py`: GCP IAM review (Recommender + Cloud Asset Inventory)
-- Weekly, auto-updated permission risk catalogs:
-  - `aws_permissions_cat.yaml`
-  - `gcp_permissions_cat.yaml`
-  - `azure_permissions_cat.yaml`
+Blue Cloud PEASS helps blue teams and auditors quickly find risky IAM privileges, unused access, and external trust relationships across AWS, GCP, and Azure.
 
-<p align="center">
-  <img src="logo.webp" alt="AWS IAM Review Logo" width="50%"/>
-</p>
+## What this repo does
 
-## AWS (`aws_iam_review.py`)
+- Classifies permissions at runtime using rule files in `risk_rules/` (no huge “full catalog” YAMLs needed for execution).
+- Produces a **human-readable console report** and an **optional JSON report** (`--out-json <path>`) with a consistent, normalized structure across clouds.
+- Focuses on:
+  - **Flagged permissions** (default: `high,critical`)
+  - **Inactive principals** (best-effort, provider-dependent)
+  - **Unused custom roles/policies**
+  - **Keys** (AWS access keys, GCP SA keys)
+  - **External trusts** (public access, external identities, cross-account / federation)
 
-This script:
+## Install
 
-- **Print unused roles, users logins, users keys and empty groups**
-  - It'll also indicated if the principals have dangerous permissions and which ones.
-  - It'll also indicate if the principal is accessible externally (for example via federation or trusting other AWS accounts).
+```bash
+python3 -m pip install -r requirements.txt
+```
 
-- **Print externally accessible principals**
-  - It'll also indicate how are they accessible (federation, trusted accounts, etc) and the conditions to meet.
+## Risk classification rules
 
-Dangerous permissions are divided in 2 categories:
-- Privilege escalation permissions are permissions that would allow a principal in AWS to obtain more permissions (by aumenting his own permissions or by pivoting to other principals for example).
-- Sensitive permissions are permissions that could allow an attacker to perform actions that could be harmful for the organization (like deleting resources, reading sensitive data, etc).
+Runtime classification uses:
+- `risk_rules/aws.yaml`
+- `risk_rules/gcp.yaml`
+- `risk_rules/azure.yaml`
 
-Moreover, this tool can optionally use an AI backend to help classify permissions (you must provide your own API key when enabled).
+The legacy full catalogs (`aws_permissions_cat.yaml`, `gcp_permissions_cat.yaml`, `azure_permissions_cat.yaml`) are kept for reference but are not used by the tools.
 
-Note that this **tool only sends permission names to the AI backend**, no private data is intended to be shared.
+## Output
 
-If you know more interesting AWS permissions feel free to send a **PR here and to [HackTricks Cloud](https://github.com/carlospolop/hacktricks-cloud)**
+### Console output
+Color-coded and optimized for quick review.
 
-## Parameters
+### JSON output (`--out-json <path>`)
+All three tools write a JSON report with the same wrapper:
+- `tool`, `schema_version`, `provider`, `generated_at`, `targets`, `summary`
 
-- You can use the `--only-yaml` flag to only check the permissions inside the YAML file withuot using HackTricksAI.
-- By default, to increase speed, the **permissions included in the readOnly** managed policy are removed before asking the AI (you can disable this behaviour with `--all-actions`).
-- By default the tool will filter out permissions assigned to specific resources (so not to `*`). You can re-enable this by using the `--all-resources` flag.
+Each `targets[*].data` is normalized with the same shape:
+- `scope`: `{scope_type, scope_id, scope_name, ...}`
+- `findings`:
+  - `principals_flagged`
+  - `principals_inactive`
+  - `principals_with_unused_permissions` (AWS populates; GCP/Azure currently `[]`)
+  - `unused_custom_definitions`
+  - `keys`
+  - `external_trusts`
+- `errors`
+- `provider_raw` (original provider-specific output retained for debugging/back-compat)
 
-## Needed AWS permissions
-
-As for any other security review, it's recommended to ask for the `arn:aws:iam::aws:policy/ReadOnlyAccess` role. From these role you will at least need permissions to list roles, users, groups and policies, and enumerate the permissions of these entities.
-
-For the AWS access analyzer you will need the `arn:aws:iam::aws:policy/AWSAccessAnalyzerReadOnlyAccess` if access analizers for `ACCOUNT` and `ACCOUNT_UNUSED_ACCESS` are already created.
-
-If they aren't created, you will need the permissions:
-- `access-analyzer:CreateAnalyzer`
-- `access-analyzer:List*`
-- `access-analyzer:Get*`
-- `access-analyzer:DeleteAnalyzer`
-- `iam:CreateServiceLinkedRole`
+---
 
 <details>
-<summary>Expand JSON example</summary>
+<summary><b>Blue-AWSPEAS.py (AWS)</b></summary>
 
-```json
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Action": [
-                "access-analyzer:List*",
-                "access-analyzer:Get*",
-                "access-analyzer:DeleteAnalyzer",
-                "access-analyzer:CreateAnalyzer"
-            ],
-            "Effect": "Allow",
-            "Resource": "*",
-            "Sid": "AccessAnalyzerOperator"
-        },
-        {
-            "Action": [
-                "iam:CreateServiceLinkedRole"
-            ],
-            "Effect": "Allow",
-            "Resource": "*",
-            "Condition": {
-                "StringEquals": {
-                    "iam:AWSServiceName": "access-analyzer.amazonaws.com"
-                }
-            },
-            "Sid": "AccessAnalyzerOperatorCreateServiceLinkedRole"
-        }
-    ]
-}
+### Goal
+Audit one or more AWS accounts and highlight:
+- Principals (users/groups/roles) with flagged permissions
+- Unused principals / unused permissions (if Access Analyzer is used)
+- Customer-managed IAM policies that are unused
+- IAM user access keys (always listed)
+- Roles trusting external accounts/providers (best-effort)
+
+### Techniques used
+- IAM enumeration (users, groups, roles, inline + attached policies)
+- Policy parsing to compute effective actions (optionally filter to `Resource: *`)
+- AWS Access Analyzer (optional) to detect:
+  - Unused roles/users/passwords/keys
+  - Unused access (unused permissions findings)
+
+### Required permissions (recommended)
+For best results, use `ReadOnlyAccess` plus Access Analyzer read access.
+
+**Baseline (minimum-ish):**
+- STS identity: `sts:GetCallerIdentity`
+- IAM enumeration + policy reads (granular):
+  - Principals: `iam:ListUsers`, `iam:ListGroups`, `iam:ListRoles`, `iam:GetGroup`
+  - Attached managed policies: `iam:ListAttachedUserPolicies`, `iam:ListAttachedGroupPolicies`, `iam:ListAttachedRolePolicies`
+  - Inline policies: `iam:ListUserPolicies`, `iam:ListGroupPolicies`, `iam:ListRolePolicies`, `iam:GetUserPolicy`, `iam:GetGroupPolicy`, `iam:GetRolePolicy`
+  - Managed policy documents: `iam:GetPolicy`, `iam:GetPolicyVersion`
+  - Customer-managed policy discovery: `iam:ListPolicies`, `iam:GetPolicy`, `iam:GetPolicyVersion`
+  - User access keys (always reported): `iam:ListAccessKeys`, `iam:GetAccessKeyLastUsed`
+
+**If you use `--assume-roles`:**
+- `sts:AssumeRole` on the target role ARNs
+
+**If using Access Analyzer (recommended):**
+- If analyzers already exist: `AWSAccessAnalyzerReadOnlyAccess`
+- If the tool must create/delete analyzers:
+  - `access-analyzer:CreateAnalyzer`, `access-analyzer:DeleteAnalyzer`, `access-analyzer:List*`, `access-analyzer:Get*`
+  - `iam:CreateServiceLinkedRole` (for `access-analyzer.amazonaws.com`)
+
+### Help
+```bash
+python3 Blue-AWSPEAS.py --help
 ```
+
+**Help output**
+```text
+usage: Blue-AWSPEAS.py [-h] [--profile PROFILE] [-v] [--no-access-analyzer]
+                       [--only-all-resources] [--risk-levels RISK_LEVELS]
+                       [--max-perms-to-print MAX_PERMS_TO_PRINT]
+                       [--min-unused-days MIN_UNUSED_DAYS]
+                       [--out-json OUT_JSON]
+                       [--max-parallel-accounts MAX_PARALLEL_ACCOUNTS]
+                       [--access-key-id ACCESS_KEY_ID]
+                       [--secret-access-key SECRET_ACCESS_KEY]
+                       [--session-token SESSION_TOKEN]
+                       [--assume-roles ASSUME_ROLES [ASSUME_ROLES ...]]
+
+Find AWS unused principals and permissions in one or several AWS accounts.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --profile PROFILE     AWS profile to check
+  -v, --verbose         Get info about why a permission is sensitive or useful
+                        for privilege escalation.
+  --no-access-analyzer  Disable AWS Access Analyzer (will not report unused
+                        resources/permissions, but will still list all
+                        principals and their sensitive permissions)
+  --only-all-resources  Only consider permissions that apply to `Resource: *`
+                        (filters out resource-scoped statements).
+  --risk-levels RISK_LEVELS
+                        Comma-separated list of risk levels to flag
+                        (low,medium,high,critical). Default: high,critical
+  --max-perms-to-print MAX_PERMS_TO_PRINT
+                        Maximum number of permissions to print per row
+  --min-unused-days MIN_UNUSED_DAYS
+                        Minimum number of days a resource must be unused to be
+                        reported (default: 90)
+  --out-json OUT_JSON   Write full JSON results to this path (stdout stays
+                        human-readable).
+  --max-parallel-accounts MAX_PARALLEL_ACCOUNTS
+                        Max accounts to analyze in parallel when multiple
+                        accounts are targeted (default: 10).
+  --access-key-id ACCESS_KEY_ID
+                        AWS Access Key ID (alternative to profile)
+  --secret-access-key SECRET_ACCESS_KEY
+                        AWS Secret Access Key (required with --access-key-id)
+  --session-token SESSION_TOKEN
+                        AWS Session Token (optional, for temporary
+                        credentials)
+  --assume-roles ASSUME_ROLES [ASSUME_ROLES ...]
+                        List of role ARNs to assume for multi-account analysis
+                        (space- or comma-separated)
+```
+
+### Examples
+```bash
+# Single account
+python3 Blue-AWSPEAS.py --profile myprofile
+
+# Disable Access Analyzer (still lists principals + flagged permissions)
+python3 Blue-AWSPEAS.py --profile myprofile --no-access-analyzer
+
+# Only consider actions granted with Resource:"*"
+python3 Blue-AWSPEAS.py --profile myprofile --only-all-resources
+
+# Multi-account via AssumeRole (parallel by default)
+python3 Blue-AWSPEAS.py --profile myprofile --assume-roles arn:aws:iam::111111111111:role/AuditRole arn:aws:iam::222222222222:role/AuditRole
+
+# Control account parallelism (default: 10)
+python3 Blue-AWSPEAS.py --profile myprofile --assume-roles arn:aws:iam::111111111111:role/AuditRole --max-parallel-accounts 5
+
+# JSON output
+python3 Blue-AWSPEAS.py --profile myprofile --out-json /tmp/aws.json
+```
+
 </details>
 
+---
 
-So the script can create it, query it and finally delete it.
+<details>
+<summary><b>Blue-GCPPEAS.py (GCP)</b></summary>
 
-## Quick Start
+### Goal
+Audit one or more GCP projects (or an organization) and highlight:
+- Principals with flagged effective permissions (role expansion)
+- External/public trusts (public members, external email domains, cross-project SAs, Workload Identity/Federation)
+- Inactive principals and inactive service account keys (best-effort via Cloud Logging)
+- Unused custom roles (best-effort)
 
+### Techniques used
+- IAM policy fetch at project/org scope
+- Cloud Asset Inventory for:
+  - Resource IAM across the project (enabled by default; can be disabled)
+  - External trust discovery (WIF, domain principals, cross-project SAs, public access)
+- Recommender API for IAM least-privilege recommendations
+- Cloud Logging (Audit Logs) best-effort for activity checks
+
+### Required APIs
+Typically needed (depending on flags):
+- Cloud Asset Inventory
+- Recommender
+- Cloud Logging
+- Cloud Resource Manager
+- IAM
+- Service Usage (only to enable missing APIs; best-effort, done via `gcloud services enable` when needed)
+
+### Required permissions (recommended)
+Use a dedicated auditor identity with read-only roles that cover:
+- IAM policy reads + role reads
+- Cloud Asset IAM search
+- Recommender read
+- Logging read
+
+**Granular permissions (what the tool actually calls):**
+- Project/org IAM policy:
+  - `resourcemanager.projects.getIamPolicy`
+  - `resourcemanager.organizations.getIamPolicy` (when `--organization`)
+  - `resourcemanager.folders.getIamPolicy` + `resourcemanager.projects.getAncestry` (folder inheritance scan)
+- Project enumeration (when `--all-projects`): `resourcemanager.projects.list`
+- Recommender:
+  - `recommender.locations.list`
+  - `recommender.iamPolicyRecommendations.list`
+- Cloud Asset (resource IAM scan is enabled by default):
+  - `cloudasset.assets.searchAllIamPolicies`
+- Role expansion:
+  - `iam.roles.get` (predefined + custom roles)
+  - `iam.roles.list` (custom roles discovery)
+- Service account keys:
+  - `iam.serviceAccountKeys.list` (user-managed keys)
+- Audit logs activity checks (best-effort):
+  - `logging.logEntries.list`
+- Enabling missing APIs (only if not enabled; quota project only):
+  - `serviceusage.services.list`
+  - `serviceusage.services.enable`
+
+Common built-in roles that usually work:
+- `roles/viewer`
+- `roles/iam.securityReviewer` and/or `roles/iam.roleViewer`
+- `roles/cloudasset.viewer`
+- `roles/recommender.iamViewer`
+- `roles/logging.viewer`
+- If you want the tool to auto-enable missing APIs: `roles/serviceusage.serviceUsageAdmin` on the quota project (or pre-enable APIs).
+
+### Help
 ```bash
-pip3 install -r requirements.txt
+python3 Blue-GCPPEAS.py --help
+```
 
-# Help
-usage: aws_iam_review.py [-h] [-k API_KEY] [-v] [--only-yaml] [--all-resources] [--print-reasons]
-                         [--all-actions] [--merge-perms] [--max-perms-to-print MAX_PERMS_TO_PRINT]
-                         [--min-unused-days MIN_UNUSED_DAYS] [--json] [-m MODEL] profiles [profiles ...]
+**Help output**
+```text
+usage: Blue-GCPPEAS.py [-h]
+                       [--project PROJECT | --organization ORGANIZATION | --all-projects]
+                       [--sa-json SA_JSON] [--quota-project QUOTA_PROJECT]
+                       [--page-size PAGE_SIZE] [--max-items MAX_ITEMS]
+                       [--out-json OUT_JSON]
+                       [--max-parallel-scopes MAX_PARALLEL_SCOPES]
+                       [--min-unused-days MIN_UNUSED_DAYS]
+                       [--risk-levels RISK_LEVELS]
+                       [--include-folder-inheritance]
+                       [--no-include-folder-inheritance]
+                       [--no-scan-resource-iam]
+                       [--skip-workload-identity-scan]
+                       [--allowed-domain ALLOWED_DOMAIN]
+                       [--skip-external-domain-scan]
+                       [--allowed-project ALLOWED_PROJECT]
+                       [--skip-external-trust-scan]
 
-Find AWS unused sensitive permissions given to principals in the accounts of the specified profiles.
+Find GCP IAM least-privilege opportunities using Recommender + Cloud Asset
+Inventory (uses your current gcloud login).
 
-positional arguments:
-  profiles              One or more AWS profiles to check.
-
-options:
+optional arguments:
   -h, --help            show this help message and exit
-  -k API_KEY            HackTricks AI API key for permission analysis
-  -v, --verbose         Get info about why a permission is sensitive or useful for privilege escalation.
-  --only-yaml           Only check permissions inside the yaml file
-  --all-resources       Do not filter only permissions over '*'
-  --print-reasons       Print the reasons why a permission is considered sensitive or useful for privilege escalation.
-  --all-actions         Do not filter permissions inside the readOnly policy
-  --merge-perms         Print permissions from yaml and OpenAI merged
-  --max-perms-to-print MAX_PERMS_TO_PRINT
-                        Maximum number of permissions to print per row (default: 15)
+  --project PROJECT     Project ID to analyze (repeatable).
+  --organization ORGANIZATION
+                        Organization ID to analyze (e.g., 1234567890).
+  --all-projects        Enumerate and analyze all accessible projects.
+  --sa-json SA_JSON     Service Account JSON credentials (path to key file or
+                        raw JSON string). If omitted, uses gcloud creds or
+                        ADC/metadata.
+  --quota-project QUOTA_PROJECT
+                        Project ID used for API quota/billing (X-Goog-User-
+                        Project). Defaults to the first analyzed project.
+  --page-size PAGE_SIZE
+                        Page size for API list calls (default: 200).
+  --max-items MAX_ITEMS
+                        Max findings to print per section (default: 20).
+  --out-json OUT_JSON   Write full JSON results to this path (stdout stays
+                        human-readable).
+  --max-parallel-scopes MAX_PARALLEL_SCOPES
+                        Max projects/scopes to analyze in parallel (default:
+                        10).
   --min-unused-days MIN_UNUSED_DAYS
-                        Minimum days a permission must be unused to be flagged (default: 30)
-  --json                Output results in JSON format (includes all data unfiltered)
-  -m MODEL              AI model to use for permission analysis
-
-
-# Run the 2 modes with 3 profiles
-python3 aws_iam_review.py profile-name profile-name2 profile-name3 -v
-
-# Run only the yaml mode with 1 profile
-python3 aws_iam_review.py profile-name --only-yaml -v
-
-# Custom unused threshold (90 days)
-python3 aws_iam_review.py profile-name --min-unused-days 90
-
-# JSON output with all data
-python3 aws_iam_review.py profile-name --json > results.json
+                        Days without observed audit-log activity to consider
+                        inactive (default: 90).
+  --risk-levels RISK_LEVELS
+                        Comma-separated list of risk levels to flag
+                        (low,medium,high,critical). Default: high,critical
+  --include-folder-inheritance
+                        Include IAM bindings inherited from ancestor folders
+                        (default: enabled).
+  --no-include-folder-inheritance
+                        Disable folder inheritance scan.
+  --no-scan-resource-iam
+                        Disable scanning IAM bindings on resources inside the
+                        project (Cloud Asset Inventory).
+  --skip-workload-identity-scan
+                        Skip Cloud Asset scan for Workload Identity
+                        Pool/Federation trust principals.
+  --allowed-domain ALLOWED_DOMAIN
+                        Allowed identity domain(s) (repeatable). Used to flag
+                        email/domain principals outside this allowlist.
+  --skip-external-domain-scan
+                        Skip Cloud Asset scan for `domain:<domain>` principals
+                        (only runs when --allowed-domain is set).
+  --allowed-project ALLOWED_PROJECT
+                        Allowed project ID(s) for cross-project serviceAccount
+                        members (repeatable).
+  --skip-external-trust-scan
+                        Skip external trust scan (public, cross-project
+                        service accounts, workload identity federation,
+                        external domains).
 ```
 
-## Output Modes
-
-**Console Output** (default): Color-coded, filtered view showing the most critical findings. Applies `--min-unused-days` filtering and limits display to 4 services and 3 permissions per service for readability.
-
-**JSON Output** (`--json`): Complete unfiltered data including all services, permissions, and metadata. Ignores display limits and filtering thresholds. Use for automated processing or comprehensive analysis.
-
----
-
-## GCP (`gcp_iam_review.py`) (Recommender + Cloud Asset)
-
-The repository also includes `gcp_iam_review.py`, which uses:
-- **Recommender API** (`google.iam.policy.Recommender`) to suggest IAM bindings/roles that can be removed or reduced based on observed usage.
-- **Cloud Asset Inventory** to highlight risky IAM trust patterns (public access, Workload Identity Federation trusts, external domains).
-- Optional AI classification to categorize effective permissions (expanded from bound roles) into privilege-escalation vs sensitive permissions.
-
-It authenticates via:
-- `--sa-json` (service account JSON key), or
-- your current `gcloud` login, or
-- ADC/metadata credentials (GCE/GKE).
-When using `--allowed-domain`, the script always includes the current `gcloud` account domain in the allowlist by default.
-
-## Needed Permissions (GCP)
-
-- Recommender recommendations: `recommender.iamPolicyRecommendations.list` (role `roles/recommender.iamViewer`)
-- Cloud Asset IAM search: `cloudasset.assets.searchAllIamPolicies` (role `roles/cloudasset.viewer`)
-- Role expansion for AI classification: `iam.roles.get`
- - Auto-enabling APIs (always attempted): `serviceusage.services.enable`
-
-## Quick Start (GCP)
-
+### Examples
 ```bash
-# Login
-gcloud auth login
+# Current gcloud default project
+python3 Blue-GCPPEAS.py
 
-# Optional: set a default project
-gcloud config set project <PROJECT_ID>
+# One or more projects
+python3 Blue-GCPPEAS.py --project my-project-1 --project my-project-2
 
-# Analyze the current project
-python3 gcp_iam_review.py
+# Whole org (use a quota project for billing/quota)
+python3 Blue-GCPPEAS.py --organization 1234567890 --quota-project my-billing-project
 
-# Analyze specific projects
-python3 gcp_iam_review.py --project <PROJECT_ID> --project <PROJECT_ID_2>
+# Disable resource-level IAM scan (default is enabled)
+python3 Blue-GCPPEAS.py --project my-project --no-scan-resource-iam
 
-# Analyze the whole organization
-python3 gcp_iam_review.py --organization <ORG_ID> --quota-project <BILLING_OR_QUOTA_PROJECT>
+# Control project parallelism (default: 10)
+python3 Blue-GCPPEAS.py --all-projects --max-parallel-scopes 10
 
-# JSON output (for tooling)
-python3 gcp_iam_review.py --project <PROJECT_ID> --json > gcp_results.json
-
-# Flag domain-wide grants outside your company domains
-python3 gcp_iam_review.py --project <PROJECT_ID> --allowed-domain example.com --allowed-domain example.org
-
-# Disable AI classification (faster, no external call)
-python3 gcp_iam_review.py --project <PROJECT_ID> --no-ai
+# JSON output
+python3 Blue-GCPPEAS.py --project my-project --out-json /tmp/gcp.json
 ```
+
+</details>
 
 ---
 
-## Permission Catalogs (Weekly Updates)
+<details>
+<summary><b>Blue-AzurePEAS.py (Azure)</b></summary>
 
-This repo maintains provider-wide granular permission risk catalogs in:
-- `aws_permissions_cat.yaml`
-- `gcp_permissions_cat.yaml`
-- `azure_permissions_cat.yaml`
+### Goal
+Audit one or more Azure subscriptions (or all accessible subscriptions) and highlight:
+- Principals with flagged RBAC permissions (role definition action patterns classified by risk rules)
+- Inactive principals (best-effort; Activity Logs + Entra sign-in activity when available)
+- Unused custom roles (subscription + resource-group scopes)
+- External trusts:
+  - Foreign principals in RBAC assignments
+  - Guest users (tenant-wide) and whether they have RBAC in the subscription
+  - Managed identity federated credentials (OIDC trust)
+- Optional: management group custom roles when scanning all subscriptions
 
-They are updated automatically by the GitHub Action in `.github/workflows/weekly-permission-categories.yml`.
+### Techniques used
+- Azure Resource Manager RBAC:
+  - Role assignments + role definitions
+  - Custom roles at subscription and resource-group scopes
+- Azure Activity Logs (best-effort “used recently” signals; not equivalent to AWS Access Analyzer)
+- Microsoft Graph (best-effort):
+  - Resolve objectIds to UPN/mail/display name (enabled by default)
+  - User sign-in activity (`signInActivity`) when available (v1.0 or beta fallback)
+  - Guest user enumeration
+- Managed identity federated credential discovery via ARM resource listing
+
+### Authentication
+No `az` subprocess calls. The tool supports:
+- Azure CLI token cache (default auto): reads `~/.azure/msal_token_cache.json`
+- Device code auth:
+  - `--auth-method device-code`
+- Service principal (client secret):
+  - `--auth-method client-secret --tenant-id ... --client-id ... --client-secret ...`
+  - Or set `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`
+
+### Required permissions (recommended)
+For subscription RBAC + resources read:
+- RBAC:
+  - `Microsoft.Authorization/roleAssignments/read`
+  - `Microsoft.Authorization/roleDefinitions/read`
+- Resource group enumeration (to find RG-scoped custom roles):
+  - `Microsoft.Resources/subscriptions/resourceGroups/read`
+- Resource listing (to find MI federated credentials):
+  - `Microsoft.Resources/resources/read`
+
+For Activity Logs:
+- `Microsoft.Insights/eventtypes/values/read`
+
+For management group custom roles (when `--all-subscriptions` + management group scan):
+- `Microsoft.Management/managementGroups/read`
+- `Microsoft.Authorization/roleDefinitions/read` on the management group scope
+
+For Graph-based resolution (recommended for readable output):
+- Delegated/app Graph permissions vary by tenant, but commonly needed:
+  - `Directory.Read.All`
+  - `User.Read.All`
+  - `AuditLog.Read.All` (for sign-in activity in many tenants; tool attempts `signInActivity` via v1.0 and beta)
+If these aren’t granted, the tool will still run but may fall back to object IDs for some principals.
+
+### Help
+```bash
+python3 Blue-AzurePEAS.py --help
+```
+
+**Help output**
+```text
+usage: Blue-AzurePEAS.py [-h]
+                         (--subscription SUBSCRIPTION | --all-subscriptions)
+                         [--risk-levels RISK_LEVELS]
+                         [--min-unused-days MIN_UNUSED_DAYS]
+                         [--max-items MAX_ITEMS]
+                         [--activity-max-events ACTIVITY_MAX_EVENTS]
+                         [--skip-activity-logs] [--no-resolve-principals]
+                         [--scan-entra] [--no-scan-entra]
+                         [--scan-mi-federation] [--no-scan-mi-federation]
+                         [--max-entra-items MAX_ENTRA_ITEMS]
+                         [--scan-management-groups]
+                         [--no-scan-management-groups]
+                         [--max-parallel-subscriptions MAX_PARALLEL_SUBSCRIPTIONS]
+                         [--auth-method AUTH_METHOD] [--tenant-id TENANT_ID]
+                         [--client-id CLIENT_ID]
+                         [--client-secret CLIENT_SECRET]
+                         [--device-client-id DEVICE_CLIENT_ID]
+                         [--no-az-token-cache] [--out-json OUT_JSON]
+
+Find Azure RBAC risky permissions and inactive principals (best-effort). Uses
+Azure SDKs, not the `az` CLI.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --subscription SUBSCRIPTION
+                        Subscription ID or name to analyze (repeatable).
+  --all-subscriptions   Enumerate and analyze all accessible subscriptions.
+  --risk-levels RISK_LEVELS
+                        Comma-separated list of risk levels to flag
+                        (low,medium,high,critical). Default: high,critical
+  --min-unused-days MIN_UNUSED_DAYS
+                        Days without observed Activity Log events to consider
+                        inactive (default: 90).
+  --max-items MAX_ITEMS
+                        Max findings to print per section (default: 20).
+  --activity-max-events ACTIVITY_MAX_EVENTS
+                        Max Activity Log events to fetch per subscription
+                        (default: 20000).
+  --skip-activity-logs  Skip Activity Log scan (disables inactive and last-
+                        used heuristics).
+  --no-resolve-principals
+                        Disable Microsoft Graph principal resolution.
+  --scan-entra          Scan Entra ID for guest users (best-effort; default:
+                        enabled).
+  --no-scan-entra       Disable Entra ID guest user scan.
+  --scan-mi-federation  Scan subscription for managed identity federated
+                        credentials (best-effort; default: enabled).
+  --no-scan-mi-federation
+                        Disable MI federated-credential scan.
+  --max-entra-items MAX_ENTRA_ITEMS
+                        Cap results for Entra/MI scans (default: 2000).
+  --scan-management-groups
+                        When using --all-subscriptions, also scan management
+                        groups for unused custom roles (best-effort; default:
+                        enabled).
+  --no-scan-management-groups
+                        Disable management group scan.
+  --max-parallel-subscriptions MAX_PARALLEL_SUBSCRIPTIONS
+                        Max subscriptions to analyze in parallel (default:
+                        10).
+  --auth-method AUTH_METHOD
+                        Authentication method: auto, client-secret, device-
+                        code, az-cache (default: auto).
+  --tenant-id TENANT_ID
+                        Tenant ID (required for client-secret auth; optional
+                        for device-code).
+  --client-id CLIENT_ID
+                        Service principal (app) client ID for client-secret
+                        auth.
+  --client-secret CLIENT_SECRET
+                        Service principal client secret for client-secret
+                        auth.
+  --device-client-id DEVICE_CLIENT_ID
+                        Public client ID for device-code auth (default: Azure
+                        CLI public app id).
+  --no-az-token-cache   Do not read tokens from
+                        ~/.azure/msal_token_cache.json; force device-
+                        code/client-secret auth.
+  --out-json OUT_JSON   Write full JSON results to this path (stdout stays
+                        human-readable).
+```
+
+### Examples
+```bash
+# Current subscription
+python3 Blue-AzurePEAS.py --subscription <SUBSCRIPTION_ID_OR_NAME>
+
+# All subscriptions (parallel by default)
+python3 Blue-AzurePEAS.py --all-subscriptions
+
+# Control subscription parallelism (default: 10)
+python3 Blue-AzurePEAS.py --all-subscriptions --max-parallel-subscriptions 10
+
+# Disable Graph resolution (not recommended)
+python3 Blue-AzurePEAS.py --subscription <SUB> --no-resolve-principals
+
+# JSON output
+python3 Blue-AzurePEAS.py --subscription <SUB> --out-json /tmp/azure.json
+```
+
+</details>

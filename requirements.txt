@@ -5,3 +5,8 @@ openai
 tiktoken
 requests
 google-auth
+tqdm
+azure-identity
+azure-mgmt-resource
+azure-mgmt-authorization
+azure-mgmt-monitor

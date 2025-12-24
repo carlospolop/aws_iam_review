@@ -10,10 +10,7 @@ import requests
 import yaml
 
 from permission_risk_classifier import (
-    HintSets,
-    aws_regex_classify,
-    gcp_regex_classify,
-    azure_regex_classify,
+    classify_permission,
     load_aws_permissions_from_managed_policies,
     load_azure_permissions_from_provider_operations,
     load_gcp_permissions_from_sorted,
@@ -23,6 +20,11 @@ from permission_risk_classifier import (
 AWS_DATASET_URL = "https://raw.githubusercontent.com/iann0036/iam-dataset/refs/heads/main/aws/managed_policies.json"
 GCP_DATASET_URL = "https://raw.githubusercontent.com/iann0036/iam-dataset/refs/heads/main/gcp/permissions_sorted.json"
 AZURE_DATASET_URL = "https://raw.githubusercontent.com/iann0036/iam-dataset/refs/heads/main/azure/provider-operations.json"
+
+
+def _default_dataset_path(filename: str) -> str:
+    base = os.environ.get("BCP_DATASET_DIR") or ".cache/iam_datasets"
+    return os.path.join(base, filename)
 
 
 def _download(url: str, dest: str) -> None:
@@ -142,47 +144,42 @@ def _existing_map(categories: dict[str, list[str]]) -> dict[str, str]:
 def _classify_new(
     provider: str,
     permission: str,
-    hints: HintSets,
 ) -> Optional[str]:
-    if provider == "aws":
-        level = aws_regex_classify(permission, hints)
-    elif provider == "gcp":
-        level = gcp_regex_classify(permission, hints)
-    elif provider == "azure":
-        level = azure_regex_classify(permission, hints)
-    else:
-        raise ValueError(provider)
-
-    if level is None:
-        level = _openai_classify(permission, provider)
-
-    if level is None:
-        return None
-
-    return level
+    level = classify_permission(provider, permission, unknown_default="high")
+    return level or _openai_classify(permission, provider)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Weekly updater for permission risk categories.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Deprecated: GitHub Actions auto-updates were removed and runtime classification uses `risk_rules/`. "
+            "Use `scripts/classify_permissions.py` for on-the-fly classification."
+        )
+    )
+    parser.add_argument(
+        "--write-catalogs",
+        action="store_true",
+        help="Actually update full categorized YAML catalogs (aws_permissions_cat.yaml, etc).",
+    )
     parser.add_argument("--aws-url", default=AWS_DATASET_URL)
     parser.add_argument("--gcp-url", default=GCP_DATASET_URL)
     parser.add_argument("--azure-url", default=AZURE_DATASET_URL)
-    parser.add_argument("--aws-json", default="tmp_perms/aws_managed_policies.json")
-    parser.add_argument("--gcp-json", default="tmp_perms/gcp_permissions_sorted.json")
-    parser.add_argument("--azure-json", default="tmp_perms/azure-provider-operations.json")
+    parser.add_argument("--aws-json", default=_default_dataset_path("aws_managed_policies.json"))
+    parser.add_argument("--gcp-json", default=_default_dataset_path("gcp_permissions_sorted.json"))
+    parser.add_argument("--azure-json", default=_default_dataset_path("azure-provider-operations.json"))
     parser.add_argument("--aws-yaml", default="aws_permissions_cat.yaml")
     parser.add_argument("--gcp-yaml", default="gcp_permissions_cat.yaml")
     parser.add_argument("--azure-yaml", default="azure_permissions_cat.yaml")
     parser.add_argument("--unclassified-yaml", default="unclassified_permissions.yaml")
     args = parser.parse_args()
 
+    if not args.write_catalogs:
+        print("Nothing to do (use `--write-catalogs` to update catalogs).")
+        return 0
+
     _download(args.aws_url, args.aws_json)
     _download(args.gcp_url, args.gcp_json)
     _download(args.azure_url, args.azure_json)
-
-    # Hint YAML files (e.g. `*_sensitive_permissions.yaml`) are intentionally not used here:
-    # classification relies on hardcoded heuristics so the workflow keeps working if those files are removed.
-    empty_hints = HintSets(sensitive=set(), privesc=set(), sensitive_lower=set(), privesc_lower=set())
 
     aws_dataset = load_aws_permissions_from_managed_policies(args.aws_json)
     gcp_dataset = load_gcp_permissions_from_sorted(args.gcp_json)
@@ -191,6 +188,7 @@ def main() -> int:
     aws_categories = _load_categories(args.aws_yaml)
     gcp_categories = _load_categories(args.gcp_yaml)
     azure_categories = _load_categories(args.azure_yaml)
+
     aws_existing = _existing_map(aws_categories)
     gcp_existing = _existing_map(gcp_categories)
     azure_existing = _existing_map(azure_categories)
@@ -204,7 +202,7 @@ def main() -> int:
     unknown_fallback_level = "high"
     newly_added = {"aws": 0, "gcp": 0, "azure": 0}
     for perm in aws_new:
-        level = _classify_new("aws", perm, empty_hints)
+        level = _classify_new("aws", perm)
         if level is None:
             unclassified["aws"].append(perm)
             level = unknown_fallback_level
@@ -212,7 +210,7 @@ def main() -> int:
         newly_added["aws"] += 1
 
     for perm in gcp_new:
-        level = _classify_new("gcp", perm, empty_hints)
+        level = _classify_new("gcp", perm)
         if level is None:
             unclassified["gcp"].append(perm)
             level = unknown_fallback_level
@@ -220,7 +218,7 @@ def main() -> int:
         newly_added["gcp"] += 1
 
     for perm in azure_new:
-        level = _classify_new("azure", perm, empty_hints)
+        level = _classify_new("azure", perm)
         if level is None:
             unclassified["azure"].append(perm)
             level = unknown_fallback_level

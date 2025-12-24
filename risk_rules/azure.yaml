@@ -1,0 +1,114 @@
+## Rule schema version (used by humans; runtime currently expects v1)
+version: 1
+
+## Cloud provider these rules apply to
+provider: azure
+
+## Regex (case-insensitive) that detects "credential-like" operations.
+## These are treated as `critical` for create/reads, and `medium` for deletes.
+credential_action_regex: "/(listsecrets|listkeys|listcredentials|listcredential|listadminkeys|listadminkey|getsecret|getsecrets|getkeys|getkey|getadminkeys|getadminkey|getauthtoken|getaccesstoken|regeneratekey|regeneratekeys|regeneratepassword|generatecredentials|generatecredential|generatekey|generatetoken|listpasswords|listpassword)/action$"
+## Azure Storage -> Microsoft.Insights child resources are read-only telemetry metadata.
+## We treat those reads as `low` to avoid classifying monitoring metadata as storage data-plane access.
+storage_insights_child_regex: "^microsoft\\.storage/storageaccounts/(blobservices|fileservices|queueservices|tableservices)/providers/microsoft\\.insights/(diagnosticsettings|logdefinitions|metricdefinitions)/read$"
+## Register-like provider actions are usually operational and treated as `medium`.
+register_like_action_regex: "/(register|unregister|checknameavailability)/action$"
+## Diagnostic settings writes are operational and treated as `medium`.
+provider_diagnostic_settings_write_regex: "/providers/microsoft\\.insights/diagnosticsettings/write$"
+
+## If these keywords are present, we avoid downgrading Microsoft.Insights rules.
+## They tend to indicate boundary/network perimeter changes.
+boundary_keywords:
+  - networksecurityperimeter
+  - privatelink
+  - privateendpoint
+  - scopedprivatelink
+  - privateendpointconnection
+
+## If an Azure permission ends with `/write` or `/action`, we downgrade it to `medium`
+## unless it contains one of these dangerous/boundary keywords.
+## Matching is case-insensitive in the classifier.
+dangerous_write_keywords:
+  - microsoft.authorization/
+  - roleassignments
+  - roledefinitions
+  - elevateaccess
+  - authorization
+  - managedidentity
+  - microsoft.keyvault/
+  - /secrets/
+  - /keys/
+  - /certificates/
+  - policy
+  - privatelink
+  - privateendpoint
+
+## Exact cost-management operations we treat as `medium` (operational / billing-related).
+cost_mgmt_exact_medium:
+  - microsoft.costmanagement/query/action
+  - microsoft.costmanagement/forecast/action
+  - microsoft.costmanagement/calculatecost/action
+  - microsoft.costmanagement/fetchprices/action
+  - microsoft.advisor/generaterecommendations/action
+  - microsoft.consumption/budgets/write
+
+## Keywords that indicate the Insights permission could touch secrets/keys.
+## If present, we do NOT apply Insights-specific downgrades.
+insights_exclude_keywords:
+  - "/apikeys/"
+  - apikey
+  - secret
+  - token
+  - credential
+  - key
+
+## Microsoft.Insights resource prefixes that are `medium` when ending in `/write`.
+insights_medium_prefixes_write:
+  - microsoft.insights/diagnosticsettings/
+  - microsoft.insights/extendeddiagnosticsettings/
+  - microsoft.insights/actiongroups/
+  - microsoft.insights/metricalerts/
+  - microsoft.insights/logprofiles/
+  - microsoft.insights/workbooks/
+  - microsoft.insights/workbooktemplates/
+  - microsoft.insights/webtests/
+## Microsoft.Insights resource prefixes that are `medium` when ending in `/write` or `/action`.
+insights_medium_prefixes_write_or_action:
+  - microsoft.insights/autoscalesettings/
+  - microsoft.insights/metrics/
+  - microsoft.insights/scheduledqueryrules/
+## Special-case prefixes for Insights alert resources.
+insights_activitylogalerts_prefix: microsoft.insights/activitylogalerts/
+insights_alertrules_prefix: microsoft.insights/alertrules/
+
+## Provider prefixes where `/write` or `/action` is treated as `medium` (unless it hits RBAC keywords).
+medium_write_action_provider_prefixes:
+  - microsoft.support/
+  - microsoft.advisor/
+  - microsoft.costmanagement/
+
+## Resource Health event actions are operational and treated as `medium`.
+resourcehealth_events_action_prefix: microsoft.resourcehealth/events/
+
+## Billing provider prefix. Writes/actions are treated as `medium` unless excluded keywords are present.
+billing_provider_prefix: microsoft.billing/
+
+## Exclusions to avoid downgrading billing operations that touch RBAC/authorization boundaries.
+billing_exclude_keywords:
+  - billingroleassignments
+  - createbillingroleassignment
+  - resolvebillingroleassignments
+  - "/elevate/action"
+  - roleassignments
+  - roledefinitions
+  - authorization
+
+## Application Insights component prefix. Writes/actions are treated as `medium` unless excluded.
+appinsights_component_prefix: microsoft.insights/components/
+
+## Exclusions to avoid downgrading app insights operations that touch keys or export config.
+appinsights_exclude_keywords:
+  - "/apikeys/"
+  - apikey
+  - exportconfiguration
+  - linkedstorageaccounts
+
