@@ -21,36 +21,6 @@ Blue Cloud PEASS helps blue teams and auditors quickly find risky IAM privileges
 python3 -m pip install -r requirements.txt
 ```
 
-## Risk classification rules
-
-Runtime classification uses:
-- `risk_rules/aws.yaml`
-- `risk_rules/gcp.yaml`
-- `risk_rules/azure.yaml`
-
-The legacy full catalogs (`aws_permissions_cat.yaml`, `gcp_permissions_cat.yaml`, `azure_permissions_cat.yaml`) are kept for reference but are not used by the tools.
-
-## Output
-
-### Console output
-Color-coded and optimized for quick review.
-
-### JSON output (`--out-json <path>`)
-All three tools write a JSON report with the same wrapper:
-- `tool`, `schema_version`, `provider`, `generated_at`, `targets`, `summary`
-
-Each `targets[*].data` is normalized with the same shape:
-- `scope`: `{scope_type, scope_id, scope_name, ...}`
-- `findings`:
-  - `principals_flagged`
-  - `principals_inactive`
-  - `principals_with_unused_permissions` (AWS populates; GCP/Azure currently `[]`)
-  - `unused_custom_definitions`
-  - `keys`
-  - `external_trusts`
-- `errors`
-- `provider_raw` (original provider-specific output retained for debugging/back-compat)
-
 ---
 
 <details>
