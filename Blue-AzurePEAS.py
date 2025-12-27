@@ -7,6 +7,7 @@ import base64
 import json
 import os
 import sys
+import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -60,6 +61,37 @@ class AzureMsalTokenCacheCredential:
         self._cache_path = cache_path or os.path.expanduser("~/.azure/msal_token_cache.json")
         self._client_id = client_id
         self._authority = authority
+
+
+def _jwt_exp(token: str) -> Optional[int]:
+    try:
+        parts = token.split(".")
+        if len(parts) < 2:
+            return None
+        payload = parts[1]
+        payload += "=" * (-len(payload) % 4)
+        data = base64.urlsafe_b64decode(payload.encode("utf-8"))
+        obj = json.loads(data.decode("utf-8"))
+        exp = obj.get("exp")
+        return int(exp) if exp is not None else None
+    except Exception:
+        return None
+
+
+class StaticTokenCredential:
+    def __init__(self, *, arm_token: str, graph_token: Optional[str] = None) -> None:
+        self._arm_token = (arm_token or "").strip()
+        self._graph_token = (graph_token or "").strip() or None
+
+    def get_token(self, *scopes: str, **kwargs) -> AccessToken:  # type: ignore[name-defined]
+        if any("graph.microsoft.com" in s for s in scopes):
+            if not self._graph_token:
+                raise ValueError("Graph token is required for Microsoft Graph scopes. Provide --graph-token or use --no-resolve-principals.")
+            token = self._graph_token
+        else:
+            token = self._arm_token
+        exp = _jwt_exp(token) or int(time.time()) + 300
+        return AccessToken(token, exp)
         self._cache = msal.SerializableTokenCache()
         self._app: Optional[msal.PublicClientApplication] = None
         self._loaded = False
@@ -223,6 +255,9 @@ def _build_credential(args) -> Any:
     auth_method = (getattr(args, "auth_method", None) or "auto").strip().lower()
     if auth_method not in ("auto", "client-secret", "device-code", "az-cache"):
         raise ValueError("Invalid --auth-method. Use one of: auto, client-secret, device-code, az-cache")
+
+    if getattr(args, "arm_token", None):
+        return StaticTokenCredential(arm_token=args.arm_token, graph_token=getattr(args, "graph_token", None))
 
     if args.client_id and args.tenant_id and args.client_secret:
         return ClientSecretCredential(tenant_id=args.tenant_id, client_id=args.client_id, client_secret=args.client_secret)
@@ -1223,6 +1258,8 @@ def main() -> None:
     ap.add_argument("--tenant-id", help="Tenant ID (required for client-secret auth; optional for device-code).")
     ap.add_argument("--client-id", help="Service principal (app) client ID for client-secret auth.")
     ap.add_argument("--client-secret", help="Service principal client secret for client-secret auth.")
+    ap.add_argument("--arm-token", help="Azure Resource Manager access token (Bearer). If provided, bypasses other auth methods.")
+    ap.add_argument("--graph-token", help="Microsoft Graph access token (Bearer). Used for principal resolution when --arm-token is provided.")
     ap.add_argument("--device-client-id", help="Public client ID for device-code auth (default: Azure CLI public app id).")
     ap.add_argument(
         "--no-az-token-cache",
