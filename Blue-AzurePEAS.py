@@ -61,37 +61,6 @@ class AzureMsalTokenCacheCredential:
         self._cache_path = cache_path or os.path.expanduser("~/.azure/msal_token_cache.json")
         self._client_id = client_id
         self._authority = authority
-
-
-def _jwt_exp(token: str) -> Optional[int]:
-    try:
-        parts = token.split(".")
-        if len(parts) < 2:
-            return None
-        payload = parts[1]
-        payload += "=" * (-len(payload) % 4)
-        data = base64.urlsafe_b64decode(payload.encode("utf-8"))
-        obj = json.loads(data.decode("utf-8"))
-        exp = obj.get("exp")
-        return int(exp) if exp is not None else None
-    except Exception:
-        return None
-
-
-class StaticTokenCredential:
-    def __init__(self, *, arm_token: str, graph_token: Optional[str] = None) -> None:
-        self._arm_token = (arm_token or "").strip()
-        self._graph_token = (graph_token or "").strip() or None
-
-    def get_token(self, *scopes: str, **kwargs) -> AccessToken:  # type: ignore[name-defined]
-        if any("graph.microsoft.com" in s for s in scopes):
-            if not self._graph_token:
-                raise ValueError("Graph token is required for Microsoft Graph scopes. Provide --graph-token or use --no-resolve-principals.")
-            token = self._graph_token
-        else:
-            token = self._arm_token
-        exp = _jwt_exp(token) or int(time.time()) + 300
-        return AccessToken(token, exp)
         self._cache = msal.SerializableTokenCache()
         self._app: Optional[msal.PublicClientApplication] = None
         self._loaded = False
@@ -120,6 +89,37 @@ class StaticTokenCredential:
         if not result or "access_token" not in result:
             raise RuntimeError(f"Failed to acquire token silently from Azure CLI cache: {result}")
         return AccessToken(result["access_token"], int(result.get("expires_on") or 0))
+
+
+def _jwt_exp(token: str) -> Optional[int]:
+    try:
+        parts = token.split(".")
+        if len(parts) < 2:
+            return None
+        payload = parts[1]
+        payload += "=" * (-len(payload) % 4)
+        data = base64.urlsafe_b64decode(payload.encode("utf-8"))
+        obj = json.loads(data.decode("utf-8"))
+        exp = obj.get("exp")
+        return int(exp) if exp is not None else None
+    except Exception:
+        return None
+
+
+class StaticTokenCredential:
+    def __init__(self, *, arm_token: str, graph_token: Optional[str] = None) -> None:
+        self._arm_token = (arm_token or "").strip()
+        self._graph_token = (graph_token or "").strip() or None
+
+    def get_token(self, *scopes: str, **kwargs: Any) -> AccessToken:
+        if any("graph.microsoft.com" in s for s in scopes):
+            if not self._graph_token:
+                raise ValueError("Graph token is required for Microsoft Graph scopes. Provide --graph-token or use --no-resolve-principals.")
+            token = self._graph_token
+        else:
+            token = self._arm_token
+        exp = _jwt_exp(token) or int(time.time()) + 300
+        return AccessToken(token, exp)
 
 
 def _utc_now_iso() -> str:
