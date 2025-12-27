@@ -458,39 +458,6 @@ def get_default_project_from_gcloud() -> Optional[str]:
     return value if value and value.lower() != "(unset)" else None
 
 
-def enable_apis(project_id: str, apis: list[str]) -> None:
-    subprocess.run(
-        ["gcloud", "services", "enable", *apis, "--project", project_id, "-q"],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        text=True,
-    )
-
-
-def list_enabled_apis(project_id: str) -> set[str]:
-    # Note: using gcloud here keeps the dependencies minimal and avoids implementing OAuth for Service Usage.
-    # Output is one API name per line.
-    try:
-        out = subprocess.check_output(
-            ["gcloud", "services", "list", "--enabled", "--project", project_id, "--format=value(config.name)"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        )
-    except Exception:
-        return set()
-    return {line.strip() for line in out.splitlines() if line.strip()}
-
-
-def ensure_apis_enabled(project_id: str, apis: list[str]) -> list[str]:
-    enabled = list_enabled_apis(project_id)
-    missing = [a for a in apis if a not in enabled]
-    if not missing:
-        return []
-    enable_apis(project_id, missing)
-    return missing
-
-
 _ROLE_PERMISSIONS_CACHE: dict[str, list[str]] = {}
 _ROLE_PERMISSIONS_LOCK = threading.Lock()
 
@@ -1306,20 +1273,8 @@ def main() -> int:
         "iam.googleapis.com",
         "cloudresourcemanager.googleapis.com",
     ]
-    try:
-        newly_enabled = ensure_apis_enabled(quota_project, required_apis)
-        if newly_enabled:
-            print(
-                _info(
-                    f"Enabled missing APIs in quota project `{quota_project}`: {', '.join(newly_enabled)} (best-effort)."
-                ),
-                file=sys.stderr,
-            )
-    except Exception as exc:
-        print(
-            f"{colored('[!] ', 'yellow')}Warning: failed ensuring required APIs in quota project `{quota_project}`: {exc}",
-            file=sys.stderr,
-        )
+    # NOTE: This tool should not enable APIs automatically (it can be intrusive and may require extra permissions).
+    # If the project does not have the required APIs enabled, the scan will surface the corresponding errors.
 
     recommenders_project = [
         "google.iam.policy.Recommender",
