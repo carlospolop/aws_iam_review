@@ -105,6 +105,7 @@ def print_results(
     unused_groups,
     external_ppals,
     *,
+    identity=None,
     unused_custom_policies=None,
     all_access_keys=None,
     external_trust_roles=None,
@@ -114,6 +115,7 @@ def print_results(
     result = {
         "account_id": account_id,
         "profile": profile,
+        "identity": identity or {},
         "unused_roles": unused_roles,
         "unused_logins": unused_logins,
         "unused_access_keys": unused_acc_keys,
@@ -1222,6 +1224,7 @@ def process_account(
             identity = sts.get_caller_identity()
             account_id = identity["Account"]
             caller_arn = identity["Arn"]
+            caller_user_id = identity.get("UserId")
             print(f"{colored('[+] ', 'green')}Analyzing account {account_id} ({profile_name})...")
             if verbose:
                 print(f"{colored('[*] ', 'cyan')}Using credentials: {caller_arn}")
@@ -1552,6 +1555,11 @@ def process_account(
             UNUSED_PERMS,
             UNUSED_GROUPS,
             EXTERNAL_PPALS,
+            identity={
+                "account": account_id,
+                "arn": caller_arn,
+                "user_id": caller_user_id,
+            },
             unused_custom_policies=UNUSED_CUSTOM_POLICIES,
             all_access_keys=ALL_ACCESS_KEYS,
             external_trust_roles=EXTERNAL_TRUST_ROLES,
