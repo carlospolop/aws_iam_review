@@ -241,6 +241,7 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
 
     principals_flagged: list[dict[str, Any]] = []
     principal_perm_map: dict[str, dict[str, Any]] = {}
+    privileged_principals: list[dict[str, Any]] = []
     for p in raw.get("principal_risks") or []:
         if not isinstance(p, dict):
             continue
@@ -260,6 +261,17 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
                 "bindings": p.get("bindings") or [],
             }
         )
+        if flagged:
+            privileged_principals.append(
+                {
+                    "principal_type": ptype,
+                    "principal_id": pid,
+                    "principal_label": str(member),
+                    "principal_member": member,
+                    "flagged_permissions": flagged,
+                    "bindings": p.get("bindings") or [],
+                }
+            )
 
     principals_inactive: list[dict[str, Any]] = []
     for p in raw.get("inactive_principals") or []:
@@ -343,6 +355,8 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
             "principals_flagged": principals_flagged,
             "principals_inactive": principals_inactive,
             "principals_with_unused_permissions": [],
+            "privileged_principals": privileged_principals,
+            "unused_permissions_available": False,
             "keys": keys,
             "unused_custom_definitions": unused_custom_defs,
             "external_trusts": external_trusts,
@@ -358,6 +372,7 @@ def normalize_azure_subscription(raw: dict[str, Any]) -> dict[str, Any]:
 
     principals_flagged: list[dict[str, Any]] = []
     principal_perm_map: dict[str, dict[str, Any]] = {}
+    privileged_principals: list[dict[str, Any]] = []
     for p in raw.get("principals") or []:
         if not isinstance(p, dict):
             continue
@@ -369,6 +384,16 @@ def normalize_azure_subscription(raw: dict[str, Any]) -> dict[str, Any]:
         if p.get("principal_id"):
             principal_perm_map[str(p.get("principal_id"))] = flagged
         principals_flagged.append(
+            {
+                "principal_type": p.get("principal_type"),
+                "principal_id": p.get("principal_id"),
+                "principal_display": principal_display,
+                "principal_label": f"{p.get('principal_type')}:{principal_display}" if principal_display else f"{p.get('principal_type')}:{p.get('principal_id')}",
+                "flagged_permissions": _risk_levels_present(flagged),
+                "roles": p.get("roles") or [],
+            }
+        )
+        privileged_principals.append(
             {
                 "principal_type": p.get("principal_type"),
                 "principal_id": p.get("principal_id"),
@@ -452,6 +477,8 @@ def normalize_azure_subscription(raw: dict[str, Any]) -> dict[str, Any]:
             "principals_flagged": principals_flagged,
             "principals_inactive": principals_inactive,
             "principals_with_unused_permissions": [],
+            "privileged_principals": privileged_principals,
+            "unused_permissions_available": False,
             "keys": [],
             "unused_custom_definitions": unused_custom_defs,
             "external_trusts": external_trusts,
