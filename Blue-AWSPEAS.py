@@ -109,6 +109,9 @@ def print_results(
     unused_custom_policies=None,
     all_access_keys=None,
     external_trust_roles=None,
+    access_analyzer_enabled=None,
+    user_permissions=None,
+    role_permissions=None,
     min_unused_days=30,
 ):
     """Print results for a single account and return a JSON-serializable dict."""
@@ -125,6 +128,9 @@ def print_results(
         "unused_custom_policies": unused_custom_policies or {},
         "all_access_keys": all_access_keys or {},
         "external_trust_roles": external_trust_roles or {},
+        "access_analyzer_enabled": access_analyzer_enabled,
+        "user_permissions": user_permissions or {},
+        "role_permissions": role_permissions or {},
     }
 
     print(f"Interesting permissions in {colored(account_id, 'yellow')} ({colored(profile, 'blue')}): ")
@@ -948,6 +954,7 @@ def check_user_permissions(
     unused_logins,
     unused_acc_keys,
     unused_perms,
+    user_permissions,
     lock,
     risk_levels,
     unused_permission_findings_map: dict = None,
@@ -967,6 +974,9 @@ def check_user_permissions(
             risk_levels,
         )
         if user_perms and user_perms.get("flagged_perms"):
+            if user_permissions is not None:
+                with lock:
+                    user_permissions[user["Arn"]] = user_perms
             # Only check unused permissions if Access Analyzer is available
             if accessanalyzer and analyzer_arn:
                 # Check if this user already has unused login/key findings
@@ -1086,6 +1096,7 @@ def check_role_permissions(
     analyzer_arn,
     unused_roles,
     unused_perms,
+    role_permissions,
     lock,
     risk_levels,
     unused_permission_findings_map: dict = None,
@@ -1105,6 +1116,9 @@ def check_role_permissions(
             risk_levels,
         )
         if role_perms and role_perms.get("flagged_perms"):
+            if role_permissions is not None:
+                with lock:
+                    role_permissions[role["Arn"]] = role_perms
             # Only check unused permissions if Access Analyzer is available
             if accessanalyzer and analyzer_arn:
                 # Check if this role already has unused finding
@@ -1173,6 +1187,8 @@ def process_account(
     UNUSED_CUSTOM_POLICIES = {}
     ALL_ACCESS_KEYS = {}
     EXTERNAL_TRUST_ROLES = {}
+    USER_PERMISSIONS = {}
+    ROLE_PERMISSIONS = {}
     
     # Track missing permissions for this account
     permission_errors = []
@@ -1433,6 +1449,7 @@ def process_account(
                         UNUSED_LOGINS,
                         UNUSED_ACC_KEYS,
                         UNUSED_PERMS,
+                        USER_PERMISSIONS,
                         lock,
                         risk_levels,
                         unused_permission_findings_map=unused_permission_findings_map,
@@ -1525,6 +1542,7 @@ def process_account(
                         analyzer_arn,
                         UNUSED_ROLES,
                         UNUSED_PERMS,
+                        ROLE_PERMISSIONS,
                         lock,
                         risk_levels,
                         unused_permission_findings_map=unused_permission_findings_map,
@@ -1563,6 +1581,9 @@ def process_account(
             unused_custom_policies=UNUSED_CUSTOM_POLICIES,
             all_access_keys=ALL_ACCESS_KEYS,
             external_trust_roles=EXTERNAL_TRUST_ROLES,
+            access_analyzer_enabled=not no_access_analyzer,
+            user_permissions=USER_PERMISSIONS,
+            role_permissions=ROLE_PERMISSIONS,
             min_unused_days=min_unused_days,
         )
 

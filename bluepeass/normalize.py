@@ -48,11 +48,31 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
     principals_flagged: list[dict[str, Any]] = []
     principals_inactive: list[dict[str, Any]] = []
     principals_unused_perms: list[dict[str, Any]] = []
+    privileged_principals: list[dict[str, Any]] = []
+    access_analyzer_enabled = raw.get("access_analyzer_enabled")
+    if access_analyzer_enabled is None:
+        access_analyzer_enabled = True
+
+    permissions_by_principal: dict[str, dict[str, Any]] = {}
+    for arn, data in (raw.get("unused_permissions") or {}).items():
+        if not isinstance(data, dict):
+            continue
+        perms = data.get("permissions")
+        if isinstance(perms, dict):
+            permissions_by_principal[str(arn)] = perms
+    for arn, perms in (raw.get("user_permissions") or {}).items():
+        if isinstance(perms, dict):
+            permissions_by_principal[str(arn)] = perms
+    for arn, perms in (raw.get("role_permissions") or {}).items():
+        if isinstance(perms, dict):
+            permissions_by_principal[str(arn)] = perms
 
     # Unused roles
     for arn, data in (raw.get("unused_roles") or {}).items():
         if not isinstance(data, dict):
             continue
+        if arn not in permissions_by_principal and isinstance(data.get("permissions"), dict):
+            permissions_by_principal[str(arn)] = data.get("permissions")
         entry = _aws_principal_entry(
             principal_type="role",
             principal_id=str(arn),
@@ -68,6 +88,8 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
     for arn, data in (raw.get("unused_logins") or {}).items():
         if not isinstance(data, dict):
             continue
+        if arn not in permissions_by_principal and isinstance(data.get("permissions"), dict):
+            permissions_by_principal[str(arn)] = data.get("permissions")
         entry = _aws_principal_entry(
             principal_type="user",
             principal_id=str(arn),
@@ -83,6 +105,8 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
     for arn, data in (raw.get("unused_groups") or {}).items():
         if not isinstance(data, dict):
             continue
+        if arn not in permissions_by_principal and isinstance(data.get("permissions"), dict):
+            permissions_by_principal[str(arn)] = data.get("permissions")
         entry = _aws_principal_entry(
             principal_type="group",
             principal_id=str(arn),
@@ -93,16 +117,33 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
             principals_flagged.append(entry)
 
     # Per-principal unused permissions (Access Analyzer path)
-    for arn, data in (raw.get("unused_permissions") or {}).items():
-        if not isinstance(data, dict):
-            continue
-        entry = _aws_principal_entry(
-            principal_type=str(data.get("type") or "principal"),
-            principal_id=str(arn),
-            principal_label=str(arn),
-            extra={"unused_permissions": data.get("permissions") or []},
-        )
-        principals_unused_perms.append(entry)
+    if access_analyzer_enabled:
+        for arn, data in (raw.get("unused_permissions") or {}).items():
+            if not isinstance(data, dict):
+                continue
+            perms = data.get("permissions") or {}
+            entry = _aws_principal_entry(
+                principal_type=str(data.get("type") or "principal"),
+                principal_id=str(arn),
+                principal_label=str(arn),
+                flagged_permissions=perms.get("flagged_perms"),
+                extra={"unused_permissions": perms},
+            )
+            principals_unused_perms.append(entry)
+    else:
+        for arn, data in (raw.get("unused_permissions") or {}).items():
+            if not isinstance(data, dict):
+                continue
+            perms = data.get("permissions") or {}
+            entry = _aws_principal_entry(
+                principal_type=str(data.get("type") or "principal"),
+                principal_id=str(arn),
+                principal_label=str(arn),
+                flagged_permissions=perms.get("flagged_perms"),
+                extra={"principal_permissions": perms},
+            )
+            if entry.get("flagged_permissions"):
+                privileged_principals.append(entry)
 
     # Keys (always reported)
     keys: list[dict[str, Any]] = []
@@ -112,6 +153,8 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
         for k in data.get("keys") or []:
             if not isinstance(k, dict):
                 continue
+            principal_perms = permissions_by_principal.get(str(user_arn))
+            flagged = _risk_levels_present(principal_perms.get("flagged_perms") if isinstance(principal_perms, dict) else {})
             keys.append(
                 {
                     "key_type": "access_key",
@@ -121,6 +164,8 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
                     "status": k.get("status"),
                     "unused_days": k.get("n_days"),
                     "last_used_at": k.get("last_used_date"),
+                    "principal_permissions": principal_perms,
+                    "flagged_permissions": flagged,
                 }
             )
 
@@ -144,11 +189,15 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
     for arn, data in (raw.get("external_trust_roles") or {}).items():
         if not isinstance(data, dict):
             continue
+        role_perms = permissions_by_principal.get(str(arn))
+        flagged = _risk_levels_present(role_perms.get("flagged_perms") if isinstance(role_perms, dict) else {})
         external_trusts.append(
             {
                 "trust_type": "role_trust",
                 "principal_id": str(arn),
                 "details": data,
+                "role_permissions": role_perms,
+                "flagged_permissions": flagged,
             }
         )
 
@@ -158,6 +207,8 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
             "principals_flagged": principals_flagged,
             "principals_inactive": principals_inactive,
             "principals_with_unused_permissions": principals_unused_perms,
+            "privileged_principals": privileged_principals,
+            "unused_permissions_available": bool(access_analyzer_enabled),
             "keys": keys,
             "unused_custom_definitions": unused_custom_defs,
             "external_trusts": external_trusts,
@@ -189,10 +240,15 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
         scope_type = "organization"
 
     principals_flagged: list[dict[str, Any]] = []
+    principal_perm_map: dict[str, dict[str, Any]] = {}
     for p in raw.get("principal_risks") or []:
         if not isinstance(p, dict):
             continue
         member = p.get("principal") or p.get("member") or ""
+        flagged_source = p.get("flagged_permissions_by_risk") or p.get("flagged_permissions") or p.get("flagged_perms") or {}
+        flagged = _risk_levels_present(flagged_source)
+        if flagged and member:
+            principal_perm_map[str(member)] = flagged_source
         ptype, pid = _gcp_member_to_type_and_id(str(member))
         principals_flagged.append(
             {
@@ -200,7 +256,7 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
                 "principal_id": pid,
                 "principal_label": str(member),
                 "principal_member": member,
-                "flagged_permissions": _risk_levels_present(p.get("flagged_permissions_by_risk") or p.get("flagged_permissions") or {}),
+                "flagged_permissions": flagged,
                 "bindings": p.get("bindings") or [],
             }
         )
@@ -228,6 +284,7 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
             continue
         member = k.get("service_account") or k.get("principal") or ""
         ptype, pid = _gcp_member_to_type_and_id(str(member))
+        flagged_source = principal_perm_map.get(str(member)) or {}
         keys.append(
             {
                 "key_type": "service_account_key",
@@ -238,6 +295,7 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
                 "status": k.get("status"),
                 "inactive": k.get("inactive"),
                 "reason": k.get("reason"),
+                "flagged_permissions": _risk_levels_present(flagged_source),
             }
         )
 
@@ -261,6 +319,7 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(t, dict):
             continue
         member = t.get("member") or t.get("principal") or ""
+        flagged_source = principal_perm_map.get(str(member)) or {}
         external_trusts.append(
             {
                 "trust_type": t.get("kind") or "external_binding",
@@ -268,6 +327,7 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
                 "role": t.get("role"),
                 "resource": t.get("resource"),
                 "reason": t.get("reason"),
+                "flagged_permissions": _risk_levels_present(flagged_source),
             }
         )
 
@@ -297,6 +357,7 @@ def normalize_azure_subscription(raw: dict[str, Any]) -> dict[str, Any]:
     scope_name = raw.get("subscription_name") or raw.get("subscriptionName") or raw.get("name")
 
     principals_flagged: list[dict[str, Any]] = []
+    principal_perm_map: dict[str, dict[str, Any]] = {}
     for p in raw.get("principals") or []:
         if not isinstance(p, dict):
             continue
@@ -305,6 +366,8 @@ def normalize_azure_subscription(raw: dict[str, Any]) -> dict[str, Any]:
             continue
         principal = p.get("principal") or {}
         principal_display = principal.get("user_principal_name") or principal.get("mail") or principal.get("display_name")
+        if p.get("principal_id"):
+            principal_perm_map[str(p.get("principal_id"))] = flagged
         principals_flagged.append(
             {
                 "principal_type": p.get("principal_type"),
@@ -346,6 +409,7 @@ def normalize_azure_subscription(raw: dict[str, Any]) -> dict[str, Any]:
     for t in raw.get("external_rbac_principals") or []:
         if not isinstance(t, dict):
             continue
+        flagged_source = principal_perm_map.get(str(t.get("principal_id") or "")) or {}
         external_trusts.append(
             {
                 "trust_type": "rbac_foreign_principal",
@@ -354,6 +418,7 @@ def normalize_azure_subscription(raw: dict[str, Any]) -> dict[str, Any]:
                 "role": t.get("role_definition_name") or t.get("role_definition_id"),
                 "scope": t.get("scope"),
                 "reason": t.get("reason"),
+                "flagged_permissions": _risk_levels_present(flagged_source),
             }
         )
     for fic in raw.get("managed_identity_federated_credentials") or []:
