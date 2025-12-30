@@ -404,6 +404,16 @@ def _graph_lookup(
     return out
 
 
+def _graph_permissions_check(credential: Any) -> None:
+    token = credential.get_token("https://graph.microsoft.com/.default").token
+    if not token:
+        raise RuntimeError("Failed to obtain Graph token for permission check.")
+    url = "https://graph.microsoft.com/v1.0/users?$top=1&$select=id"
+    r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=30)
+    if r.status_code >= 400:
+        raise RuntimeError(f"Graph permission check failed ({r.status_code}): {r.text[:200]}")
+
+
 def _graph_group_members(
     *,
     credential: Any,
@@ -1432,6 +1442,8 @@ def main() -> None:
             "upn": mgmt_claims.get("upn") or mgmt_claims.get("preferred_username"),
             "tid": mgmt_claims.get("tid"),
         }
+        if args.resolve_principals or args.scan_entra:
+            _graph_permissions_check(credential)
     except Exception as e:
         print(f"{colored('[-] ', 'red')}Azure authentication failed: {e}")
         sys.exit(1)
