@@ -8,6 +8,7 @@ Blue Cloud PEASS helps blue teams and auditors quickly find risky IAM privileges
 
 - Classifies permissions at runtime using rule files in `risk_rules/` (no huge “full catalog” YAMLs needed for execution).
 - Produces a **human-readable console report** and an **optional JSON report** (`--out-json <path>`) with a consistent, normalized structure across clouds.
+- JSON output includes **permission source attribution** (which role/policy grants each flagged permission) and **group membership expansion** when available.
 - Focuses on:
   - **Flagged permissions** (default: `high,critical`)
   - **Inactive principals** (best-effort, provider-dependent)
@@ -33,10 +34,12 @@ Audit one or more AWS accounts and highlight:
 - Customer-managed IAM policies that are unused
 - IAM user access keys (always listed)
 - Roles trusting external accounts/providers (best-effort)
+- Group memberships (user → group) for relationship graphing
 
 ### Techniques used
 - IAM enumeration (users, groups, roles, inline + attached policies)
 - Policy parsing to compute effective actions (optionally filter to `Resource: *`)
+- Permission source attribution per principal (policy/role → flagged permission)
 - AWS Access Analyzer (optional) to detect:
   - Unused roles/users/passwords/keys
   - Unused access (unused permissions findings)
@@ -47,7 +50,7 @@ For best results, use `ReadOnlyAccess` plus Access Analyzer read access.
 **Baseline (minimum-ish):**
 - STS identity: `sts:GetCallerIdentity`
 - IAM enumeration + policy reads (granular):
-  - Principals: `iam:ListUsers`, `iam:ListGroups`, `iam:ListRoles`, `iam:GetGroup`
+  - Principals: `iam:ListUsers`, `iam:ListGroups`, `iam:ListRoles`, `iam:GetGroup`, `iam:ListGroupsForUser`
   - Attached managed policies: `iam:ListAttachedUserPolicies`, `iam:ListAttachedGroupPolicies`, `iam:ListAttachedRolePolicies`
   - Inline policies: `iam:ListUserPolicies`, `iam:ListGroupPolicies`, `iam:ListRolePolicies`, `iam:GetUserPolicy`, `iam:GetGroupPolicy`, `iam:GetRolePolicy`
   - Managed policy documents: `iam:GetPolicy`, `iam:GetPolicyVersion`
@@ -160,6 +163,7 @@ Audit one or more GCP projects (or an organization) and highlight:
   - External trust discovery (WIF, domain principals, cross-project SAs, public access)
 - Recommender API for IAM least-privilege recommendations
 - Cloud Logging (Audit Logs) best-effort for activity checks
+- Cloud Identity group membership expansion (optional, best-effort)
 
 ### Required APIs
 Typically needed (depending on flags):
@@ -341,6 +345,7 @@ Audit one or more Azure subscriptions (or all accessible subscriptions) and high
   - Resolve objectIds to UPN/mail/display name (enabled by default)
   - User sign-in activity (`signInActivity`) when available (v1.0 or beta fallback)
   - Guest user enumeration
+  - Group membership expansion (transitive) for group-linked principals (when Graph allows it)
 - Managed identity federated credential discovery via ARM resource listing
 
 ### Authentication
@@ -374,6 +379,7 @@ For Graph-based resolution (recommended for readable output):
   - `Directory.Read.All`
   - `User.Read.All`
   - `AuditLog.Read.All` (for sign-in activity in many tenants; tool attempts `signInActivity` via v1.0 and beta)
+  - `Group.Read.All` or `GroupMember.Read.All` (for group membership expansion)
 If these aren’t granted, the tool will still run but may fall back to object IDs for some principals.
 
 ### Help
