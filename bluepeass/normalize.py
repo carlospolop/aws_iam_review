@@ -851,6 +851,11 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
 def normalize_azure_subscription(raw: dict[str, Any]) -> dict[str, Any]:
     scope_id = raw.get("subscription_id") or raw.get("subscriptionId") or raw.get("id") or ""
     scope_name = raw.get("subscription_name") or raw.get("subscriptionName") or raw.get("name")
+    stats = raw.get("stats") or {}
+    current_identity = stats.get("current_identity") or {}
+    caller_name = current_identity.get("upn") or current_identity.get("preferred_username")
+    caller_email = current_identity.get("upn") or current_identity.get("preferred_username")
+    caller_oid = current_identity.get("oid")
 
     perm_catalog: dict[str, int] = {}
     perm_items: list[dict[str, Any]] = []
@@ -1107,7 +1112,14 @@ def normalize_azure_subscription(raw: dict[str, Any]) -> dict[str, Any]:
         group_memberships.append({"group_ref": group_ref, "member_ref": member_ref, "member_kind": member_kind})
 
     return {
-        "scope": {"scope_type": "subscription", "scope_id": scope_id, "scope_name": scope_name},
+        "scope": {
+            "scope_type": "subscription",
+            "scope_id": scope_id,
+            "scope_name": scope_name,
+            "caller_name": caller_name,
+            "caller_email": caller_email,
+            "caller_user_id": caller_oid,
+        },
         "findings": {
             "principals_flagged": principals_flagged,
             "principals_inactive": principals_inactive,

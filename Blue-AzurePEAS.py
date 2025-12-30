@@ -300,37 +300,6 @@ def _graph_lookup(
 ) -> dict[str, Any]:
     if object_id in cache:
         return cache[object_id]
-
-
-def _graph_group_members(
-    *,
-    credential: Any,
-    group_id: str,
-    transitive: bool = True,
-    max_items: int = 2000,
-) -> list[dict[str, Any]]:
-    token = credential.get_token("https://graph.microsoft.com/.default").token
-    path = "transitiveMembers" if transitive else "members"
-    url = f"https://graph.microsoft.com/v1.0/groups/{group_id}/{path}"
-    items: list[dict[str, Any]] = []
-    params = {"$select": "id,displayName,userPrincipalName,mail,@odata.type"}
-
-    while url and len(items) < max_items:
-        r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, params=params, timeout=30)
-        if r.status_code == 404:
-            break
-        if r.status_code >= 400:
-            raise RuntimeError(f"Graph group members failed ({r.status_code}): {r.text[:200]}")
-        data = r.json()
-        if not isinstance(data, dict):
-            break
-        for entry in data.get("value", []) or []:
-            if isinstance(entry, dict):
-                items.append(entry)
-        url = data.get("@odata.nextLink")
-        params = None
-    return items
-
     token = credential.get_token("https://graph.microsoft.com/.default").token
 
     def get_json(url: str, select: str) -> dict[str, Any]:
@@ -400,6 +369,36 @@ def _graph_group_members(
         out["last_any_sign_in_at"] = _dt_iso(best)
     cache[object_id] = out
     return out
+
+
+def _graph_group_members(
+    *,
+    credential: Any,
+    group_id: str,
+    transitive: bool = True,
+    max_items: int = 2000,
+) -> list[dict[str, Any]]:
+    token = credential.get_token("https://graph.microsoft.com/.default").token
+    path = "transitiveMembers" if transitive else "members"
+    url = f"https://graph.microsoft.com/v1.0/groups/{group_id}/{path}"
+    items: list[dict[str, Any]] = []
+    params = {"$select": "id,displayName,userPrincipalName,mail,@odata.type"}
+
+    while url and len(items) < max_items:
+        r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, params=params, timeout=30)
+        if r.status_code == 404:
+            break
+        if r.status_code >= 400:
+            raise RuntimeError(f"Graph group members failed ({r.status_code}): {r.text[:200]}")
+        data = r.json()
+        if not isinstance(data, dict):
+            break
+        for entry in data.get("value", []) or []:
+            if isinstance(entry, dict):
+                items.append(entry)
+        url = data.get("@odata.nextLink")
+        params = None
+    return items
 
 
 def _graph_list_guest_users(
@@ -1084,6 +1083,7 @@ def scan_subscription(
         "activity_log_events_seen": activity_events_seen,
         "min_unused_days": min_unused_days,
         "max_items_stdout": max_items,
+        "current_identity": current_identity or {},
     }
 
     # Sanity check: is the currently authenticated identity "active" in this subscription?
