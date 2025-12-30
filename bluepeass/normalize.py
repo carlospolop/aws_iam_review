@@ -14,6 +14,24 @@ def _risk_levels_present(flagged: dict[str, Any]) -> dict[str, list[str]]:
     return out
 
 
+def _normalize_flagged_sources(flagged_sources: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    out: dict[str, list[dict[str, Any]]] = {}
+    if not isinstance(flagged_sources, dict):
+        return out
+    for lvl in ("critical", "high", "medium", "low"):
+        per_level = flagged_sources.get(lvl)
+        if not isinstance(per_level, dict):
+            continue
+        items: list[dict[str, Any]] = []
+        for perm, sources in per_level.items():
+            if not isinstance(perm, str) or not perm:
+                continue
+            items.append({"permission": perm, "sources": sources if isinstance(sources, list) else []})
+        if items:
+            out[lvl] = items
+    return out
+
+
 def _aws_principal_entry(
     *,
     principal_type: str,
@@ -21,6 +39,7 @@ def _aws_principal_entry(
     principal_label: Optional[str] = None,
     unused_days: Optional[int] = None,
     flagged_permissions: Optional[dict[str, Any]] = None,
+    flagged_permission_sources: Optional[dict[str, Any]] = None,
     extra: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     d: dict[str, Any] = {
@@ -32,6 +51,8 @@ def _aws_principal_entry(
         d["unused_days"] = unused_days
     if flagged_permissions is not None:
         d["flagged_permissions"] = _risk_levels_present(flagged_permissions)
+    if flagged_permission_sources is not None:
+        d["flagged_permission_sources"] = _normalize_flagged_sources(flagged_permission_sources)
     if extra:
         d.update(extra)
     return d
@@ -79,6 +100,7 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
             principal_label=str(arn),
             unused_days=data.get("n_days"),
             flagged_permissions=(data.get("permissions") or {}).get("flagged_perms"),
+            flagged_permission_sources=(data.get("permissions") or {}).get("flagged_perm_sources"),
         )
         principals_inactive.append(entry)
         if entry.get("flagged_permissions"):
@@ -96,6 +118,7 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
             principal_label=str(arn),
             unused_days=data.get("n_days"),
             flagged_permissions=(data.get("permissions") or {}).get("flagged_perms"),
+            flagged_permission_sources=(data.get("permissions") or {}).get("flagged_perm_sources"),
         )
         principals_inactive.append(entry)
         if entry.get("flagged_permissions"):
@@ -112,6 +135,7 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
             principal_id=str(arn),
             principal_label=str(arn),
             flagged_permissions=(data.get("permissions") or {}).get("flagged_perms"),
+            flagged_permission_sources=(data.get("permissions") or {}).get("flagged_perm_sources"),
         )
         if entry.get("flagged_permissions"):
             principals_flagged.append(entry)
@@ -127,6 +151,7 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
                 principal_id=str(arn),
                 principal_label=str(arn),
                 flagged_permissions=perms.get("flagged_perms"),
+                flagged_permission_sources=perms.get("flagged_perm_sources"),
                 extra={"unused_permissions": perms},
             )
             principals_unused_perms.append(entry)
@@ -140,6 +165,7 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
                 principal_id=str(arn),
                 principal_label=str(arn),
                 flagged_permissions=perms.get("flagged_perms"),
+                flagged_permission_sources=perms.get("flagged_perm_sources"),
                 extra={"principal_permissions": perms},
             )
             if entry.get("flagged_permissions"):
@@ -166,6 +192,9 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
                     "last_used_at": k.get("last_used_date"),
                     "principal_permissions": principal_perms,
                     "flagged_permissions": flagged,
+                    "flagged_permission_sources": _normalize_flagged_sources(
+                        principal_perms.get("flagged_perm_sources") if isinstance(principal_perms, dict) else {}
+                    ),
                 }
             )
 
@@ -181,6 +210,9 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
                 "definition_id": str(arn),
                 "definition_name": data.get("policy_name"),
                 "flagged_permissions": _risk_levels_present(perms.get("flagged_perms") if isinstance(perms, dict) else {}),
+                "flagged_permission_sources": _normalize_flagged_sources(
+                    perms.get("flagged_perm_sources") if isinstance(perms, dict) else {}
+                ),
             }
         )
 
@@ -198,6 +230,9 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
                 "details": data,
                 "role_permissions": role_perms,
                 "flagged_permissions": flagged,
+                "flagged_permission_sources": _normalize_flagged_sources(
+                    role_perms.get("flagged_perm_sources") if isinstance(role_perms, dict) else {}
+                ),
             }
         )
 
@@ -258,6 +293,7 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
                 "principal_label": str(member),
                 "principal_member": member,
                 "flagged_permissions": flagged,
+                "flagged_permission_sources": _normalize_flagged_sources(p.get("flagged_perm_sources") or {}),
                 "bindings": p.get("bindings") or [],
             }
         )
@@ -269,6 +305,7 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
                     "principal_label": str(member),
                     "principal_member": member,
                     "flagged_permissions": flagged,
+                    "flagged_permission_sources": _normalize_flagged_sources(p.get("flagged_perm_sources") or {}),
                     "bindings": p.get("bindings") or [],
                 }
             )
@@ -308,6 +345,9 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
                 "inactive": k.get("inactive"),
                 "reason": k.get("reason"),
                 "flagged_permissions": _risk_levels_present(flagged_source),
+                "flagged_permission_sources": _normalize_flagged_sources(
+                    k.get("flagged_perm_sources") or principal_perm_map.get(str(member)) or {}
+                ),
             }
         )
 
@@ -322,6 +362,7 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
                 "definition_id": r.get("name"),
                 "definition_name": r.get("title") or r.get("name"),
                 "flagged_permissions": _risk_levels_present(r.get("flagged_permissions_by_risk") or {}),
+                "flagged_permission_sources": _normalize_flagged_sources(r.get("flagged_perm_sources") or {}),
             }
         )
 
@@ -340,6 +381,7 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
                 "resource": t.get("resource"),
                 "reason": t.get("reason"),
                 "flagged_permissions": _risk_levels_present(flagged_source),
+                "flagged_permission_sources": _normalize_flagged_sources(t.get("flagged_perm_sources") or {}),
             }
         )
 
@@ -390,6 +432,7 @@ def normalize_azure_subscription(raw: dict[str, Any]) -> dict[str, Any]:
                 "principal_display": principal_display,
                 "principal_label": f"{p.get('principal_type')}:{principal_display}" if principal_display else f"{p.get('principal_type')}:{p.get('principal_id')}",
                 "flagged_permissions": _risk_levels_present(flagged),
+                "flagged_permission_sources": _normalize_flagged_sources(p.get("flagged_perm_sources") or {}),
                 "roles": p.get("roles") or [],
             }
         )
@@ -400,6 +443,7 @@ def normalize_azure_subscription(raw: dict[str, Any]) -> dict[str, Any]:
                 "principal_display": principal_display,
                 "principal_label": f"{p.get('principal_type')}:{principal_display}" if principal_display else f"{p.get('principal_type')}:{p.get('principal_id')}",
                 "flagged_permissions": _risk_levels_present(flagged),
+                "flagged_permission_sources": _normalize_flagged_sources(p.get("flagged_perm_sources") or {}),
                 "roles": p.get("roles") or [],
             }
         )
@@ -427,6 +471,7 @@ def normalize_azure_subscription(raw: dict[str, Any]) -> dict[str, Any]:
                 "definition_id": r.get("role_definition_id"),
                 "definition_name": r.get("role_name") or r.get("role_definition_id"),
                 "flagged_permissions": _risk_levels_present(r.get("flagged_permission_patterns_by_risk") or {}),
+                "flagged_permission_sources": _normalize_flagged_sources(r.get("flagged_perm_sources") or {}),
             }
         )
 
@@ -444,6 +489,7 @@ def normalize_azure_subscription(raw: dict[str, Any]) -> dict[str, Any]:
                 "scope": t.get("scope"),
                 "reason": t.get("reason"),
                 "flagged_permissions": _risk_levels_present(flagged_source),
+                "flagged_permission_sources": _normalize_flagged_sources(t.get("flagged_perm_sources") or {}),
             }
         )
     for fic in raw.get("managed_identity_federated_credentials") or []:

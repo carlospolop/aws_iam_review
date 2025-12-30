@@ -439,8 +439,15 @@ def get_unused_custom_policies(iam_client, only_all_resources, risk_levels, verb
                     doc = pv.get("PolicyVersion", {}).get("Document")
                     if not doc:
                         continue
-                    perms = combine_permissions([doc], only_all_resources=only_all_resources)
-                    flagged = check_policy(perms, risk_levels)
+                    source = {
+                        "source_type": "custom_policy",
+                        "policy_arn": arn,
+                        "policy_name": name,
+                    }
+                    action_sources = {}
+                    for action in extract_actions_from_document(doc, only_all_resources=only_all_resources):
+                        action_sources.setdefault(action, []).append(source)
+                    flagged = classify_actions_with_sources(action_sources, risk_levels)
                     unused[arn] = {"policy_name": name, "permissions": flagged}
                 except Exception as e:
                     if verbose:
@@ -528,6 +535,108 @@ def combine_permissions(policy_documents, *, only_all_resources: bool):
     return permissions
 
 
+def extract_actions_from_document(document, *, only_all_resources: bool):
+    actions = []
+    if not isinstance(document, dict):
+        return actions
+    statements = document.get("Statement", [])
+    if not isinstance(statements, list):
+        statements = [statements]
+    for statement in statements:
+        if not isinstance(statement, dict):
+            continue
+        # Skip Deny statements - only process Allow statements
+        if statement.get("Effect", "Allow") != "Allow":
+            continue
+
+        resource = statement.get("Resource", [])
+        if only_all_resources:
+            if isinstance(resource, str) and resource != "*" and not resource.endswith(":*"):
+                continue
+            elif isinstance(resource, list):
+                if "*" not in resource and not any(isinstance(r, str) and r.endswith(":*") for r in resource):
+                    continue
+
+        perms = statement.get("Action", [])
+        if isinstance(perms, str):
+            perms = [perms]
+        for perm in perms:
+            if isinstance(perm, str) and perm:
+                actions.append(perm)
+    return actions
+
+
+def classify_actions_with_sources(action_sources, risk_levels):
+    if not action_sources:
+        return {
+            "flagged_perms": {},
+            "flagged_perm_sources": {},
+            "is_admin": False,
+            "all_actions": [],
+        }
+    if risk_levels is None:
+        risk_levels = ['high', 'critical']
+
+    def _dedupe_sources(sources):
+        seen = set()
+        out = []
+        for src in sources or []:
+            if not isinstance(src, dict):
+                continue
+            key = (
+                src.get("source_type"),
+                src.get("policy_arn"),
+                src.get("policy_name"),
+                src.get("attachment"),
+                src.get("attachment_name"),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(src)
+        return out
+
+    flagged_perms = {}
+    flagged_perm_sources = {}
+    is_admin = False
+    all_actions = list(action_sources.keys())
+
+    wildcard_sources = []
+    for action in all_actions:
+        if action in ("*", "*:*"):
+            wildcard_sources.extend(action_sources.get(action, []))
+            is_admin = True
+    if is_admin:
+        flagged_perms["critical"] = ["*"]
+        flagged_perm_sources["critical"] = {"*": _dedupe_sources(wildcard_sources)}
+        return {
+            "flagged_perms": flagged_perms,
+            "flagged_perm_sources": flagged_perm_sources,
+            "is_admin": is_admin,
+            "all_actions": all_actions,
+        }
+
+    for action, sources in action_sources.items():
+        lvl = classify_permission("aws", action, unknown_default="high")
+        if lvl not in risk_levels:
+            continue
+        flagged_perms.setdefault(lvl, []).append(action)
+        flagged_perm_sources.setdefault(lvl, {}).setdefault(action, []).extend(sources or [])
+
+    # Deduplicate permissions within each risk level
+    for risk_level in list(flagged_perms.keys()):
+        flagged_perms[risk_level] = list(dict.fromkeys(flagged_perms[risk_level]))
+        for perm in list(flagged_perm_sources.get(risk_level, {}).keys()):
+            flagged_perm_sources[risk_level][perm] = _dedupe_sources(flagged_perm_sources[risk_level][perm])
+
+    return {
+        "flagged_perms": flagged_perms,
+        "flagged_perm_sources": flagged_perm_sources,
+        "is_admin": False,
+        "all_actions": all_actions,
+    }
+
+
 # Function to check if a policy contains sensitive or privesc permissions
 def check_policy(all_perm, risk_levels=None):
     if not all_perm:
@@ -583,6 +692,7 @@ def get_policies(
     risk_levels,
 ):
     policy_document = []
+    policy_docs_with_sources = []
     all_attached_policies = []
 
     try:
@@ -609,6 +719,13 @@ def get_policies(
     for policy in all_attached_policies:
         try:
             policy_arn = policy["PolicyArn"]
+            source = {
+                "source_type": "managed_policy",
+                "policy_arn": policy_arn,
+                "policy_name": policy.get("PolicyName"),
+                "attachment": principal_type.lower(),
+                "attachment_name": principal_name,
+            }
             
             # Check cache first
             with _POLICY_CACHE_LOCK:
@@ -628,6 +745,7 @@ def get_policies(
                 _POLICY_CACHE[policy_arn] = doc
             
             policy_document.append(doc)
+            policy_docs_with_sources.append((doc, source))
         except ClientError as e:
             if e.response['Error']['Code'] in ['AccessDenied', 'AccessDeniedException']:
                 if verbose:
@@ -674,7 +792,19 @@ def get_policies(
                 inlinepolicy = iam_client.get_group_policy(GroupName=principal_name, PolicyName=policy_name)
 
             if inlinepolicy:
-                policy_document.append(inlinepolicy["PolicyDocument"])
+                doc = inlinepolicy["PolicyDocument"]
+                policy_document.append(doc)
+                policy_docs_with_sources.append(
+                    (
+                        doc,
+                        {
+                            "source_type": "inline_policy",
+                            "policy_name": policy_name,
+                            "attachment": principal_type.lower(),
+                            "attachment_name": principal_name,
+                        },
+                    )
+                )
         except ClientError as e:
             if e.response['Error']['Code'] in ['AccessDenied', 'AccessDeniedException', 'NoSuchEntity']:
                 if verbose:
@@ -691,11 +821,77 @@ def get_policies(
     if not policy_document:
         return None
 
-    all_perm = combine_permissions(policy_document, only_all_resources=only_all_resources)
-    interesting_perms = check_policy(all_perm, risk_levels)
-    interesting_perms["all_actions"] = all_perm
+    action_sources: dict[str, list[dict]] = {}
+    for doc, source in policy_docs_with_sources:
+        for action in extract_actions_from_document(doc, only_all_resources=only_all_resources):
+            action_sources.setdefault(action, []).append(source)
+
+    interesting_perms = classify_actions_with_sources(action_sources, risk_levels)
+    interesting_perms["action_sources"] = action_sources
 
     return interesting_perms
+
+
+def get_user_effective_permissions(
+    iam_client,
+    user,
+    verbose,
+    only_all_resources,
+    risk_levels,
+):
+    """Aggregate user + group policies into a single permission view."""
+    action_sources: dict[str, list[dict]] = {}
+
+    user_perms = get_policies(
+        iam_client,
+        "User",
+        user["UserName"],
+        user["Arn"],
+        verbose,
+        only_all_resources,
+        risk_levels,
+    )
+    if user_perms and user_perms.get("action_sources"):
+        for action, sources in (user_perms.get("action_sources") or {}).items():
+            action_sources.setdefault(action, []).extend(sources or [])
+
+    try:
+        paginator = iam_client.get_paginator('list_groups_for_user')
+        for page in paginator.paginate(UserName=user["UserName"]):
+            for group in page.get("Groups", []):
+                group_name = group.get("GroupName")
+                group_arn = group.get("Arn") or group_name
+                if not group_name:
+                    continue
+                group_perms = get_policies(
+                    iam_client,
+                    "Group",
+                    group_name,
+                    group_arn,
+                    verbose,
+                    only_all_resources,
+                    risk_levels,
+                )
+                if group_perms and group_perms.get("action_sources"):
+                    for action, sources in (group_perms.get("action_sources") or {}).items():
+                        action_sources.setdefault(action, []).extend(sources or [])
+    except ClientError as e:
+        if e.response['Error']['Code'] in ['AccessDenied', 'AccessDeniedException']:
+            if verbose:
+                print(f"{colored('[-] ', 'yellow')}Access denied listing groups for user {user['UserName']}")
+        else:
+            if verbose:
+                print(f"{colored('[-] ', 'red')}Error listing groups for user {user['UserName']}: {e.response['Error']['Message']}")
+    except Exception as e:
+        if verbose:
+            print(f"{colored('[-] ', 'red')}Error listing groups for user {user['UserName']}: {str(e)}")
+
+    if not action_sources:
+        return None
+
+    merged = classify_actions_with_sources(action_sources, risk_levels)
+    merged["action_sources"] = action_sources
+    return merged
 
 
 def is_group_empty(iam_client, group_name):
@@ -964,11 +1160,9 @@ def check_user_permissions(
         unused_permission_findings_map = {}
     
     try:
-        user_perms = get_policies(
+        user_perms = get_user_effective_permissions(
             iam_client,
-            "User",
-            user["UserName"],
-            user["Arn"],
+            user,
             verbose,
             only_all_resources,
             risk_levels,

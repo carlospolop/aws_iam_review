@@ -1896,8 +1896,11 @@ def main() -> int:
                 continue
             # Accumulate permissions from all roles, then deduplicate before classification
             perms_set: set[str] = set()
+            role_perm_map: dict[str, list[str]] = {}
             for role in sorted(roles):
-                perms_set.update(get_role_permissions(role=role, token=token, quota_project=quota_project))
+                role_perms = get_role_permissions(role=role, token=token, quota_project=quota_project)
+                role_perm_map[role] = role_perms
+                perms_set.update(role_perms)
             
             # Convert to list for classification (already deduplicated)
             perms = list(perms_set)
@@ -1905,8 +1908,26 @@ def main() -> int:
             known = classify_permissions_yaml(perms, risk_levels)
             if not known["flagged_perms"]:
                 continue
+            perm_sources: dict[str, dict[str, list[str]]] = {}
+            perm_to_level = {}
+            for lvl, plist in known["flagged_perms"].items():
+                for perm in plist:
+                    perm_to_level[perm] = lvl
+            for role, role_perms in role_perm_map.items():
+                role_perm_set = set(role_perms)
+                for perm, lvl in perm_to_level.items():
+                    if perm in role_perm_set:
+                        perm_sources.setdefault(lvl, {}).setdefault(perm, []).append(role)
+            for lvl in list(perm_sources.keys()):
+                for perm in list(perm_sources[lvl].keys()):
+                    perm_sources[lvl][perm] = sorted(set(perm_sources[lvl][perm]))
             project_out["principal_risks"].append(
-                {"principal": principal, "roles": sorted(roles), "flagged_perms": known["flagged_perms"]}
+                {
+                    "principal": principal,
+                    "roles": sorted(roles),
+                    "flagged_perms": known["flagged_perms"],
+                    "flagged_perm_sources": perm_sources,
+                }
             )
         if principal_eval_bar is not None:
             principal_eval_bar.close()
@@ -1930,7 +1951,17 @@ def main() -> int:
                     perms = get_role_permissions(role=role_name, token=token, quota_project=quota_project)
                     known = classify_permissions_yaml(perms, risk_levels)
                     flagged = known.get("flagged_perms") or {}
+                    perm_sources = {}
+                    if flagged:
+                        for lvl, plist in flagged.items():
+                            for perm in plist:
+                                perm_sources.setdefault(lvl, {}).setdefault(perm, []).append(role_name)
+                        for lvl in list(perm_sources.keys()):
+                            for perm in list(perm_sources[lvl].keys()):
+                                perm_sources[lvl][perm] = sorted(set(perm_sources[lvl][perm]))
                     unused_custom_roles.append({"role": role_name, "flagged_perms": flagged})
+                    if perm_sources:
+                        unused_custom_roles[-1]["flagged_perm_sources"] = perm_sources
                 project_out["unused_custom_roles"] = unused_custom_roles
             except Exception as exc:
                 project_out["errors"].append({"kind": "custom_roles", "error": str(exc)})

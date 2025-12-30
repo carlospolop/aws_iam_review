@@ -723,6 +723,8 @@ def scan_subscription(
         patterns: list[str] = []
         not_actions_union: set[str] = set()
         not_data_actions_union: set[str] = set()
+        role_pattern_map: dict[str, list[str]] = {}
+        role_label_map: dict[str, str] = {}
 
         for a in plist:
             rdid = a.get("role_definition_id") or a.get("roleDefinitionId")
@@ -741,10 +743,30 @@ def scan_subscription(
                 patterns += rp["patterns"]
                 not_actions_union.update(rp["not_actions"])
                 not_data_actions_union.update(rp["not_data_actions"])
+                role_pattern_map[rdid] = rp["patterns"]
+                role_label = role_name or rdid
+                if a_scope:
+                    role_label = f"{role_label} @ {a_scope}"
+                role_label_map[rdid] = role_label
 
         patterns = sorted(set(x for x in patterns if isinstance(x, str) and x.strip()))
         perms_by_level = _classify_patterns(patterns)
         flagged = _flagged_only(perms_by_level, flagged_levels)
+        perm_sources: dict[str, dict[str, list[str]]] = {}
+        if flagged:
+            perm_to_level = {}
+            for lvl, plist2 in flagged.items():
+                for perm in plist2:
+                    perm_to_level[perm] = lvl
+            for rdid, rpatterns in role_pattern_map.items():
+                rpattern_set = set(rpatterns)
+                for perm, lvl in perm_to_level.items():
+                    if perm in rpattern_set:
+                        role_label = role_label_map.get(rdid) or rdid
+                        perm_sources.setdefault(lvl, {}).setdefault(perm, []).append(role_label)
+            for lvl in list(perm_sources.keys()):
+                for perm in list(perm_sources[lvl].keys()):
+                    perm_sources[lvl][perm] = sorted(set(perm_sources[lvl][perm]))
 
         # Only exact operations can be correlated to activity logs.
         for lvl, ops in flagged.items():
@@ -760,6 +782,7 @@ def scan_subscription(
             "roles": roles,
             "permission_patterns_by_risk": perms_by_level,
             "flagged_permission_patterns_by_risk": flagged,
+            "flagged_perm_sources": perm_sources,
             "not_actions": sorted(not_actions_union),
             "not_data_actions": sorted(not_data_actions_union),
         }
