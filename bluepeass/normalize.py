@@ -219,6 +219,11 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
     """
     account_id = str(raw.get("account_id") or "unknown")
     profile = raw.get("profile")
+    identity = raw.get("identity") or {}
+    caller_arn = identity.get("arn") or identity.get("Arn")
+    caller_name = identity.get("name") or identity.get("user_name") or identity.get("UserName")
+    caller_email = identity.get("email") or identity.get("mail")
+    caller_user_id = identity.get("user_id") or identity.get("UserId")
 
     perm_catalog: dict[str, int] = {}
     perm_items: list[dict[str, Any]] = []
@@ -528,7 +533,15 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
         )
 
     return {
-        "scope": {"scope_type": "account", "scope_id": account_id, "scope_name": profile},
+        "scope": {
+            "scope_type": "account",
+            "scope_id": account_id,
+            "scope_name": profile,
+            "caller_name": caller_name,
+            "caller_arn": caller_arn,
+            "caller_email": caller_email,
+            "caller_user_id": caller_user_id,
+        },
         "findings": {
             "principals_flagged": principals_flagged,
             "principals_inactive": principals_inactive,

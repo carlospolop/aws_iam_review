@@ -70,6 +70,21 @@ signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 
+def _principal_name_from_arn(arn: str | None) -> str | None:
+    if not arn:
+        return None
+    if arn.endswith(":root"):
+        return "root"
+    if ":assumed-role/" in arn:
+        tail = arn.split(":assumed-role/", 1)[1]
+        return tail.split("/", 1)[0] if tail else None
+    if ":role/" in arn:
+        return arn.split(":role/", 1)[1]
+    if ":user/" in arn:
+        return arn.split(":user/", 1)[1]
+    return None
+
+
 def print_permissions(ppal_permissions):
     """Print flagged permissions by risk level."""
     if not ppal_permissions or "flagged_perms" not in ppal_permissions:
@@ -1451,6 +1466,23 @@ def process_account(
             account_id = identity["Account"]
             caller_arn = identity["Arn"]
             caller_user_id = identity.get("UserId")
+            caller_name = _principal_name_from_arn(caller_arn)
+            caller_email = None
+            if caller_arn and ":user/" in caller_arn and caller_name:
+                try:
+                    user_details = iam.get_user(UserName=caller_name).get("User", {})
+                    caller_name = user_details.get("UserName") or caller_name
+                except ClientError:
+                    pass
+                try:
+                    tags = iam.list_user_tags(UserName=caller_name).get("Tags", [])
+                    for tag in tags:
+                        key = (tag.get("Key") or "").lower()
+                        if key in ("email", "mail", "user_email"):
+                            caller_email = tag.get("Value")
+                            break
+                except ClientError:
+                    pass
             print(f"{colored('[+] ', 'green')}Analyzing account {account_id} ({profile_name})...")
             if verbose:
                 print(f"{colored('[*] ', 'cyan')}Using credentials: {caller_arn}")
@@ -1788,6 +1820,8 @@ def process_account(
                 "account": account_id,
                 "arn": caller_arn,
                 "user_id": caller_user_id,
+                "name": caller_name,
+                "email": caller_email,
             },
             unused_custom_policies=UNUSED_CUSTOM_POLICIES,
             all_access_keys=ALL_ACCESS_KEYS,
