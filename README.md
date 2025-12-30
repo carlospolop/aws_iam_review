@@ -9,6 +9,7 @@ Blue Cloud PEASS helps blue teams and auditors quickly find risky IAM privileges
 - Classifies permissions at runtime using rule files in `risk_rules/` (no huge “full catalog” YAMLs needed for execution).
 - Produces a **human-readable console report** and an **optional JSON report** (`--out-json <path>`) with a consistent, normalized structure across clouds.
 - JSON output includes **permission source attribution** (which role/policy grants each flagged permission) and **group membership expansion** when available.
+- Normalized JSON is compacted with **permission/principal/role/group catalogs** so repeated data is referenced by ID.
 - Focuses on:
   - **Flagged permissions** (default: `high,critical`)
   - **Inactive principals** (best-effort, provider-dependent)
