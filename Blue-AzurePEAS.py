@@ -299,7 +299,37 @@ def _graph_lookup(
     cache: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     if object_id in cache:
-        return cache[object_id]
+    return cache[object_id]
+
+
+def _graph_group_members(
+    *,
+    credential: Any,
+    group_id: str,
+    transitive: bool = True,
+    max_items: int = 2000,
+) -> list[dict[str, Any]]:
+    token = credential.get_token("https://graph.microsoft.com/.default").token
+    path = "transitiveMembers" if transitive else "members"
+    url = f"https://graph.microsoft.com/v1.0/groups/{group_id}/{path}"
+    items: list[dict[str, Any]] = []
+    params = {"$select": "id,displayName,userPrincipalName,mail,@odata.type"}
+
+    while url and len(items) < max_items:
+        r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, params=params, timeout=30)
+        if r.status_code == 404:
+            break
+        if r.status_code >= 400:
+            raise RuntimeError(f"Graph group members failed ({r.status_code}): {r.text[:200]}")
+        data = r.json()
+        if not isinstance(data, dict):
+            break
+        for entry in data.get("value", []) or []:
+            if isinstance(entry, dict):
+                items.append(entry)
+        url = data.get("@odata.nextLink")
+        params = None
+    return items
 
     token = credential.get_token("https://graph.microsoft.com/.default").token
 
@@ -595,6 +625,7 @@ class SubscriptionScanResult:
     external_rbac_principals: list[dict]
     managed_identity_federated_credentials: list[dict]
     guest_users: list[dict]
+    group_memberships: list[dict]
     errors: list[dict]
     stats: dict
 
@@ -792,6 +823,37 @@ def scan_subscription(
         else:
             entry["principal_label"] = f"{principal_type or 'unknown'}:{pid}"
         principal_entries.append(entry)
+
+    if resolve_principals:
+        stage_cb("group_memberships")
+        group_ids = [p.get("principal_id") for p in principal_entries if p.get("principal_type") == "Group"]
+        for gid in [g for g in group_ids if isinstance(g, str) and g]:
+            try:
+                members = _graph_group_members(credential=credential, group_id=gid, transitive=True, max_items=max_entra_items)
+            except Exception as e:
+                fail("graph_group_members", e)
+                continue
+            group_info = principal_cache.get(gid) or {}
+            group_label = _principal_best_label("Group", gid, group_info)
+            for m in members:
+                m_id = m.get("id")
+                if not m_id:
+                    continue
+                m_type = (m.get("@odata.type") or "").split(".")[-1] if isinstance(m.get("@odata.type"), str) else None
+                m_label = _principal_best_label(m_type or "member", m_id, {
+                    "display_name": m.get("displayName"),
+                    "user_principal_name": m.get("userPrincipalName"),
+                    "mail": m.get("mail"),
+                })
+                group_memberships.append(
+                    {
+                        "group_id": gid,
+                        "group_label": group_label,
+                        "member_id": m_id,
+                        "member_label": m_label,
+                        "member_type": m_type,
+                    }
+                )
 
     # Activity logs: best-effort "inactive principals" + best-effort last-used for exact ops.
     last_seen_by_oid: dict[str, datetime] = {}
@@ -1039,6 +1101,7 @@ def scan_subscription(
 
     guest_users: list[dict] = []
     mi_fics: list[dict] = []
+    group_memberships: list[dict] = []
 
     stage_cb("entra_external")
     if scan_entra:
@@ -1081,6 +1144,7 @@ def scan_subscription(
         ),
         managed_identity_federated_credentials=mi_fics,
         guest_users=guest_users,
+        group_memberships=group_memberships,
         errors=errors,
         stats=stats,
     )

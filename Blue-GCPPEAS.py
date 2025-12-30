@@ -744,6 +744,50 @@ def extract_sa_project_from_email(payload: str) -> Optional[str]:
     return None
 
 
+def cloud_identity_group_lookup(*, group_email: str, token: str, quota_project: str) -> Optional[str]:
+    params = {"groupKey.id": group_email}
+    url = f"https://cloudidentity.googleapis.com/v1/groups:lookup?{urllib.parse.urlencode(params)}"
+    data = http_json(url, token=token, quota_project=quota_project)
+    name = data.get("name")
+    return name if isinstance(name, str) and name else None
+
+
+def cloud_identity_group_memberships(
+    *,
+    group_name: str,
+    token: str,
+    quota_project: str,
+    max_items: int = 2000,
+) -> list[dict]:
+    members: list[dict] = []
+    page_token: Optional[str] = None
+    while True:
+        params = {"pageSize": "200", "view": "BASIC"}
+        if page_token:
+            params["pageToken"] = page_token
+        url = f"https://cloudidentity.googleapis.com/v1/{group_name}/memberships?{urllib.parse.urlencode(params)}"
+        data = http_json(url, token=token, quota_project=quota_project)
+        for m in data.get("memberships", []) or []:
+            if not isinstance(m, dict):
+                continue
+            key = m.get("preferredMemberKey") or m.get("memberKey") or {}
+            member_id = key.get("id") if isinstance(key, dict) else None
+            if not isinstance(member_id, str) or not member_id:
+                continue
+            members.append(
+                {
+                    "member_id": member_id,
+                    "member_type": m.get("type"),
+                }
+            )
+            if len(members) >= max_items:
+                return members
+        page_token = data.get("nextPageToken")
+        if not page_token:
+            break
+    return members
+
+
 def binding_condition(binding: dict) -> Optional[dict]:
     cond = binding.get("condition")
     if not isinstance(cond, dict):
@@ -1388,6 +1432,7 @@ def main() -> int:
             "inactive_service_account_keys": [],
             "errors": [],
             "allowed_domains": sorted(project_allowed_domains),
+            "group_memberships": [],
         }
 
         if progress_cb:
@@ -1931,6 +1976,44 @@ def main() -> int:
             )
         if principal_eval_bar is not None:
             principal_eval_bar.close()
+
+        # Group membership expansion (Cloud Identity). Best-effort: skip if API/permissions unavailable.
+        group_memberships: list[dict] = []
+        group_principals = [p for p, _ in principal_items_all if isinstance(p, str) and p.startswith("group:")]
+        for gp in group_principals:
+            parsed = parse_member(gp)
+            group_email = parsed.get("payload")
+            if not group_email:
+                continue
+            try:
+                group_name = cloud_identity_group_lookup(
+                    group_email=group_email, token=token, quota_project=quota_project
+                )
+                if not group_name:
+                    continue
+                members = cloud_identity_group_memberships(
+                    group_name=group_name, token=token, quota_project=quota_project, max_items=max_items
+                )
+            except ApiError:
+                # Cloud Identity API disabled or insufficient permissions; skip silently.
+                continue
+            except Exception:
+                continue
+            for m in members:
+                member_id = m.get("member_id")
+                if not member_id:
+                    continue
+                group_memberships.append(
+                    {
+                        "group_id": gp,
+                        "group_label": gp,
+                        "member_id": member_id,
+                        "member_label": member_id,
+                        "member_type": m.get("member_type"),
+                    }
+                )
+        if group_memberships:
+            project_out["group_memberships"] = group_memberships
 
         # Unused custom roles (project-only).
         if progress_cb:

@@ -168,6 +168,7 @@ Typically needed (depending on flags):
 - Cloud Logging
 - Cloud Resource Manager
 - IAM
+- Cloud Identity (only if you want group membership expansion for `group:` principals)
 - Service Usage (only to enable missing APIs; best-effort, done via `gcloud services enable` when needed)
 
 ### Required permissions (recommended)
@@ -193,6 +194,10 @@ Use a dedicated auditor identity with read-only roles that cover:
   - `iam.roles.list` (custom roles discovery)
 - Service account keys:
   - `iam.serviceAccountKeys.list` (user-managed keys)
+- Group membership expansion (optional):
+  - `cloudidentity.groups.get`
+  - `cloudidentity.groups.list`
+  - `cloudidentity.groups.memberships.list`
 - Audit logs activity checks (best-effort):
   - `logging.logEntries.list`
 - Enabling missing APIs (only if not enabled; quota project only):
@@ -205,6 +210,7 @@ Common built-in roles that usually work:
 - `roles/cloudasset.viewer`
 - `roles/recommender.iamViewer`
 - `roles/logging.viewer`
+- If you want group membership expansion (Cloud Identity): a role that grants the above Cloud Identity permissions (e.g., a custom role or the Cloud Identity groups/memberships read-only roles in your org).
 - If you want the tool to auto-enable missing APIs: `roles/serviceusage.serviceUsageAdmin` on the quota project (or pre-enable APIs).
 
 ### Help

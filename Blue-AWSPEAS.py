@@ -112,6 +112,7 @@ def print_results(
     access_analyzer_enabled=None,
     user_permissions=None,
     role_permissions=None,
+    group_memberships=None,
     min_unused_days=30,
 ):
     """Print results for a single account and return a JSON-serializable dict."""
@@ -131,6 +132,7 @@ def print_results(
         "access_analyzer_enabled": access_analyzer_enabled,
         "user_permissions": user_permissions or {},
         "role_permissions": role_permissions or {},
+        "group_memberships": group_memberships or [],
     }
 
     print(f"Interesting permissions in {colored(account_id, 'yellow')} ({colored(profile, 'blue')}): ")
@@ -838,6 +840,8 @@ def get_user_effective_permissions(
     verbose,
     only_all_resources,
     risk_levels,
+    group_memberships,
+    lock,
 ):
     """Aggregate user + group policies into a single permission view."""
     action_sources: dict[str, list[dict]] = {}
@@ -863,6 +867,16 @@ def get_user_effective_permissions(
                 group_arn = group.get("Arn") or group_name
                 if not group_name:
                     continue
+                if group_memberships is not None and lock is not None:
+                    with lock:
+                        group_memberships.append(
+                            {
+                                "group_arn": group_arn,
+                                "group_name": group_name,
+                                "user_arn": user.get("Arn"),
+                                "user_name": user.get("UserName"),
+                            }
+                        )
                 group_perms = get_policies(
                     iam_client,
                     "Group",
@@ -1151,6 +1165,7 @@ def check_user_permissions(
     unused_acc_keys,
     unused_perms,
     user_permissions,
+    group_memberships,
     lock,
     risk_levels,
     unused_permission_findings_map: dict = None,
@@ -1166,6 +1181,8 @@ def check_user_permissions(
             verbose,
             only_all_resources,
             risk_levels,
+            group_memberships,
+            lock,
         )
         if user_perms and user_perms.get("flagged_perms"):
             if user_permissions is not None:
@@ -1383,6 +1400,7 @@ def process_account(
     EXTERNAL_TRUST_ROLES = {}
     USER_PERMISSIONS = {}
     ROLE_PERMISSIONS = {}
+    USER_GROUP_MEMBERSHIPS = []
     
     # Track missing permissions for this account
     permission_errors = []
@@ -1644,6 +1662,7 @@ def process_account(
                         UNUSED_ACC_KEYS,
                         UNUSED_PERMS,
                         USER_PERMISSIONS,
+                        USER_GROUP_MEMBERSHIPS,
                         lock,
                         risk_levels,
                         unused_permission_findings_map=unused_permission_findings_map,
@@ -1778,6 +1797,7 @@ def process_account(
             access_analyzer_enabled=not no_access_analyzer,
             user_permissions=USER_PERMISSIONS,
             role_permissions=ROLE_PERMISSIONS,
+            group_memberships=USER_GROUP_MEMBERSHIPS,
             min_unused_days=min_unused_days,
         )
 
