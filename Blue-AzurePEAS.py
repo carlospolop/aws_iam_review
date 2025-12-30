@@ -299,7 +299,7 @@ def _graph_lookup(
     cache: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     if object_id in cache:
-    return cache[object_id]
+        return cache[object_id]
 
 
 def _graph_group_members(
