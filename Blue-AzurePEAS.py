@@ -589,6 +589,62 @@ def _list_mg_custom_role_definitions(
         url = data.get("nextLink")
     return out
 
+def _list_mg_role_assignments(
+    credential: Any,
+    *,
+    management_group_id: str,
+    max_items: int,
+) -> list[dict[str, Any]]:
+    mg_id = management_group_id.strip()
+    if not mg_id:
+        return []
+    url = f"https://management.azure.com/providers/Microsoft.Management/managementGroups/{mg_id}/providers/Microsoft.Authorization/roleAssignments"
+    params = {"api-version": AUTHZ_API_VERSION}
+    out: list[dict[str, Any]] = []
+    while url and len(out) < max_items:
+        data = _arm_get(credential=credential, url=url, params=params)
+        params = None
+        vals = data.get("value") or []
+        if isinstance(vals, list):
+            for ra in vals:
+                if isinstance(ra, dict):
+                    out.append(ra)
+                    if len(out) >= max_items:
+                        break
+        url = data.get("nextLink")
+    return out
+
+
+def _list_mg_subscriptions(
+    credential: Any,
+    *,
+    management_group_id: str,
+    max_items: int,
+) -> list[str]:
+    mg_id = management_group_id.strip()
+    if not mg_id:
+        return []
+    url = f"https://management.azure.com/providers/Microsoft.Management/managementGroups/{mg_id}/subscriptions"
+    params = {"api-version": MGMT_API_VERSION}
+    out: list[str] = []
+    while url and len(out) < max_items:
+        data = _arm_get(credential=credential, url=url, params=params)
+        params = None
+        vals = data.get("value") or []
+        if isinstance(vals, list):
+            for sub in vals:
+                if not isinstance(sub, dict):
+                    continue
+                sub_id = sub.get("name") or sub.get("subscriptionId")
+                if not sub_id and isinstance(sub.get("id"), str):
+                    sub_id = sub["id"].strip().split("/")[-1]
+                if isinstance(sub_id, str) and sub_id.strip():
+                    out.append(sub_id.strip())
+                if len(out) >= max_items:
+                    break
+        url = data.get("nextLink")
+    return out
+
 def _activity_event_oid(ev: dict[str, Any]) -> Optional[str]:
     # Activity Log event schema: `claims` contains oid in most cases.
     claims = ev.get("claims")
@@ -693,6 +749,7 @@ def scan_subscription(
     scan_entra: bool,
     scan_mi_federation: bool,
     max_entra_items: int,
+    mg_assignments: Optional[list[dict[str, Any]]] = None,
     current_identity: Optional[dict[str, Any]] = None,
     stage_cb: Optional[Callable[[str], None]] = None,
 ) -> SubscriptionScanResult:
@@ -723,6 +780,9 @@ def scan_subscription(
         except Exception as e2:
             fail("role_assignments_list", e)
             fail("role_assignments_list_for_scope", e2)
+
+    if mg_assignments:
+        assignments.extend(mg_assignments)
 
     by_principal: dict[str, list[dict[str, Any]]] = defaultdict(list)
     role_def_ids: set[str] = set()
@@ -759,6 +819,13 @@ def scan_subscription(
 
     def fetch_role_def(full_id: str) -> tuple[str, Optional[dict[str, Any]], Optional[str]]:
         try:
+            if "/providers/Microsoft.Management/managementGroups/" in full_id:
+                rd = _arm_get(
+                    credential=credential,
+                    url=f"https://management.azure.com{full_id}",
+                    params={"api-version": AUTHZ_API_VERSION},
+                )
+                return full_id, rd, None
             role_guid = full_id.rsplit("/", 1)[-1]
             rd = authz.role_definitions.get(scope, role_guid)
             return full_id, _as_dict(rd), None
@@ -1500,6 +1567,9 @@ def main() -> None:
         print(f"{colored('[-] ', 'red')}No subscriptions to analyze.")
         sys.exit(1)
 
+    subscription_ids = {sid for sid, _ in subscriptions}
+    mg_assignments_by_sub: dict[str, list[dict[str, Any]]] = defaultdict(list)
+
     stages = [
         "role_assignments",
         "role_definitions",
@@ -1514,6 +1584,51 @@ def main() -> None:
 
     all_results: list[SubscriptionScanResult] = []
     all_errors: list[dict] = []
+
+    if args.scan_management_groups:
+        try:
+            mgs_for_assignments = _list_management_groups(credential, max_items=args.max_entra_items)
+        except Exception as e:
+            all_errors.append({"where": "management_groups_list_assignments", "error": str(e)})
+            mgs_for_assignments = []
+
+        for mg in mgs_for_assignments:
+            mg_name = (mg.get("name") or "").strip()
+            if not mg_name:
+                continue
+            try:
+                subs_in_mg = _list_mg_subscriptions(
+                    credential, management_group_id=mg_name, max_items=args.max_entra_items
+                )
+            except Exception as e:
+                all_errors.append({"where": "management_group_subscriptions", "error": f"{mg_name}: {e}"})
+                subs_in_mg = []
+            subs_in_mg = [s for s in subs_in_mg if s in subscription_ids]
+            if not subs_in_mg:
+                continue
+            try:
+                assignments = _list_mg_role_assignments(
+                    credential, management_group_id=mg_name, max_items=args.max_items
+                )
+            except Exception as e:
+                all_errors.append({"where": "management_group_role_assignments", "error": f"{mg_name}: {e}"})
+                continue
+            for a in assignments:
+                props = a.get("properties") if isinstance(a, dict) else None
+                if not isinstance(props, dict):
+                    continue
+                assignment = {
+                    "id": a.get("id"),
+                    "name": a.get("name"),
+                    "principalId": props.get("principalId"),
+                    "principalType": props.get("principalType"),
+                    "roleDefinitionId": props.get("roleDefinitionId"),
+                    "scope": props.get("scope") or f"/providers/Microsoft.Management/managementGroups/{mg_name}",
+                }
+                if not assignment.get("principalId") or not assignment.get("roleDefinitionId"):
+                    continue
+                for sub_id in subs_in_mg:
+                    mg_assignments_by_sub[sub_id].append(assignment)
 
     def worker(task_id: int, sid: str, name: Optional[str]) -> Optional[SubscriptionScanResult]:
         cb = sp.make_callback(task_id)
@@ -1531,6 +1646,7 @@ def main() -> None:
                 scan_entra=args.scan_entra,
                 scan_mi_federation=args.scan_mi_federation,
                 max_entra_items=args.max_entra_items,
+                mg_assignments=mg_assignments_by_sub.get(sid),
                 current_identity=current_identity,
                 stage_cb=cb,
             )
