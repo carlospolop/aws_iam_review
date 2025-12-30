@@ -39,6 +39,17 @@ from bluepeass.report import Target, atomic_write_json, build_report
 from bluepeass.normalize import normalize_azure_management_groups, normalize_azure_subscription
 from scripts.permission_risk_classifier import RISK_LEVELS, RISK_ORDER, classify_permission
 
+REQUIRED_GRAPH_SCOPES_ANY = {
+    "Directory.Read.All",
+    "User.Read.All",
+}
+REQUIRED_GRAPH_GROUP_SCOPES = {
+    "Group.Read.All",
+    "GroupMember.Read.All",
+}
+OPTIONAL_GRAPH_SCOPES = {
+    "AuditLog.Read.All",
+}
 
 AZURE_PUBLIC_CLIENT_ID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"  # Common public client (Azure CLI app id)
 MGMT_API_VERSION = "2020-05-01"
@@ -142,6 +153,28 @@ def _jwt_claims(token: str) -> dict[str, Any]:
         return obj if isinstance(obj, dict) else {}
     except Exception:
         return {}
+
+
+def _token_scopes(claims: dict[str, Any]) -> set[str]:
+    scopes = set()
+    scp = claims.get("scp")
+    if isinstance(scp, str):
+        scopes.update({s for s in scp.split() if s})
+    roles = claims.get("roles")
+    if isinstance(roles, list):
+        scopes.update({r for r in roles if isinstance(r, str) and r})
+    return scopes
+
+
+def _ensure_token_scopes(token: str, *, expected_aud: str, required_any: set[str], label: str) -> None:
+    claims = _jwt_claims(token)
+    aud = claims.get("aud")
+    if expected_aud and aud and expected_aud not in str(aud):
+        raise ValueError(f"{label} token has unexpected audience ({aud}); expected {expected_aud}.")
+    scopes = _token_scopes(claims)
+    if required_any and not scopes.intersection(required_any):
+        needed = ", ".join(sorted(required_any))
+        raise ValueError(f"{label} token missing required scopes/roles. Need at least one of: {needed}.")
 
 
 def _fmt_utc_z(dt: datetime) -> str:
@@ -1362,6 +1395,32 @@ def main() -> None:
     except Exception as e:
         print(f"{colored('[-] ', 'red')}Error: {e}")
         sys.exit(2)
+
+    if args.arm_token:
+        try:
+            _ensure_token_scopes(
+                args.arm_token,
+                expected_aud="management.azure.com",
+                required_any=set(),
+                label="ARM",
+            )
+        except Exception as e:
+            print(f"{colored('[-] ', 'red')}Invalid ARM token: {e}")
+            sys.exit(2)
+        if (args.resolve_principals or args.scan_entra) and not args.graph_token:
+            print(f"{colored('[-] ', 'red')}Graph token required for principal resolution/guest user scan.")
+            sys.exit(2)
+        if args.graph_token:
+            try:
+                _ensure_token_scopes(
+                    args.graph_token,
+                    expected_aud="graph.microsoft.com",
+                    required_any=REQUIRED_GRAPH_SCOPES_ANY,
+                    label="Graph",
+                )
+            except Exception as e:
+                print(f"{colored('[-] ', 'red')}Invalid Graph token: {e}")
+                sys.exit(2)
 
     try:
         credential = _build_credential(args)
