@@ -609,18 +609,14 @@ def classify_actions_with_sources(action_sources, risk_levels):
             wildcard_sources.extend(action_sources.get(action, []))
             is_admin = True
     if is_admin:
-        flagged_perms["critical"] = ["*"]
-        flagged_perm_sources["critical"] = {"*": _dedupe_sources(wildcard_sources)}
-        return {
-            "flagged_perms": flagged_perms,
-            "flagged_perm_sources": flagged_perm_sources,
-            "is_admin": is_admin,
-            "all_actions": all_actions,
-        }
+        flagged_perms.setdefault("critical", []).append("*")
+        flagged_perm_sources.setdefault("critical", {}).setdefault("*", []).extend(_dedupe_sources(wildcard_sources))
 
     for action, sources in action_sources.items():
         lvl = classify_permission("aws", action, unknown_default="high")
         if lvl not in risk_levels:
+            continue
+        if action in ("*", "*:*"):
             continue
         flagged_perms.setdefault(lvl, []).append(action)
         flagged_perm_sources.setdefault(lvl, {}).setdefault(action, []).extend(sources or [])
@@ -732,7 +728,9 @@ def get_policies(
             # Check cache first
             with _POLICY_CACHE_LOCK:
                 if policy_arn in _POLICY_CACHE:
-                    policy_document.append(_POLICY_CACHE[policy_arn])
+                    doc = _POLICY_CACHE[policy_arn]
+                    policy_document.append(doc)
+                    policy_docs_with_sources.append((doc, source))
                     continue
             
             # Fetch policy
