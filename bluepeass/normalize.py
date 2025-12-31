@@ -261,6 +261,7 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
     for arn, data in (raw.get("unused_roles") or {}).items():
         if not isinstance(data, dict):
             continue
+        fallback_perms = permissions_by_principal.get(str(arn)) or {}
         if arn not in permissions_by_principal and isinstance(data.get("permissions"), dict):
             permissions_by_principal[str(arn)] = _compact_permissions(data.get("permissions"))
         entry = _aws_principal_entry(
@@ -268,8 +269,8 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
             principal_id=str(arn),
             principal_label=str(arn),
             unused_days=data.get("n_days"),
-            flagged_permissions=(data.get("permissions") or {}).get("flagged_perms"),
-            flagged_permission_sources=(data.get("permissions") or {}).get("flagged_perm_sources"),
+            flagged_permissions=(data.get("permissions") or {}).get("flagged_perms") or fallback_perms.get("flagged_perms"),
+            flagged_permission_sources=(data.get("permissions") or {}).get("flagged_perm_sources") or fallback_perms.get("flagged_perm_sources"),
             perm_catalog=perm_catalog,
             perm_items=perm_items,
             role_catalog=role_catalog,
@@ -287,6 +288,7 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
     for arn, data in (raw.get("unused_logins") or {}).items():
         if not isinstance(data, dict):
             continue
+        fallback_perms = permissions_by_principal.get(str(arn)) or {}
         if arn not in permissions_by_principal and isinstance(data.get("permissions"), dict):
             permissions_by_principal[str(arn)] = _compact_permissions(data.get("permissions"))
         entry = _aws_principal_entry(
@@ -294,8 +296,8 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
             principal_id=str(arn),
             principal_label=str(arn),
             unused_days=data.get("n_days"),
-            flagged_permissions=(data.get("permissions") or {}).get("flagged_perms"),
-            flagged_permission_sources=(data.get("permissions") or {}).get("flagged_perm_sources"),
+            flagged_permissions=(data.get("permissions") or {}).get("flagged_perms") or fallback_perms.get("flagged_perms"),
+            flagged_permission_sources=(data.get("permissions") or {}).get("flagged_perm_sources") or fallback_perms.get("flagged_perm_sources"),
             perm_catalog=perm_catalog,
             perm_items=perm_items,
             role_catalog=role_catalog,
@@ -657,6 +659,7 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(p, dict):
             continue
         member = p.get("principal") or p.get("member") or ""
+        flagged_source = principal_perm_map.get(str(member)) or {}
         ptype, pid = _gcp_member_to_type_and_id(str(member))
         subject_ref, subject_kind = _subject_ref(
             subject_type=ptype,
@@ -672,6 +675,14 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
                 "subject_ref": subject_ref,
                 "subject_kind": subject_kind,
                 "reason": p.get("reason"),
+                "flagged_permissions": _catalog_permissions(flagged_source, perm_catalog, perm_items),
+                "flagged_permission_sources": _compact_flagged_sources(
+                    _normalize_flagged_sources(p.get("flagged_perm_sources") or {}),
+                    perm_catalog,
+                    perm_items,
+                    role_catalog,
+                    role_items,
+                ),
             }
         )
 
@@ -936,6 +947,7 @@ def normalize_azure_subscription(raw: dict[str, Any]) -> dict[str, Any]:
     for p in raw.get("inactive_principals") or []:
         if not isinstance(p, dict):
             continue
+        flagged_source = principal_perm_map.get(str(p.get("principal_id") or "")) or {}
         subject_ref, subject_kind = _subject_ref(
             subject_type=p.get("principal_type"),
             subject_id=p.get("principal_id"),
@@ -950,6 +962,14 @@ def normalize_azure_subscription(raw: dict[str, Any]) -> dict[str, Any]:
                 "subject_ref": subject_ref,
                 "subject_kind": subject_kind,
                 "reason": p.get("reason"),
+                "flagged_permissions": _catalog_permissions(flagged_source, perm_catalog, perm_items),
+                "flagged_permission_sources": _compact_flagged_sources(
+                    _normalize_flagged_sources(p.get("flagged_perm_sources") or {}),
+                    perm_catalog,
+                    perm_items,
+                    role_catalog,
+                    role_items,
+                ),
             }
         )
 
