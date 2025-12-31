@@ -222,6 +222,11 @@ Common built-in roles that usually work:
 - If you want group membership expansion (Cloud Identity): a role that grants the above Cloud Identity permissions (e.g., a custom role or the Cloud Identity groups/memberships read-only roles in your org).
 - If you want the tool to auto-enable missing APIs: `roles/serviceusage.serviceUsageAdmin` on the quota project (or pre-enable APIs).
 
+### Common pitfalls
+- For full coverage, prefer `--organization`. `--all-projects` may return zero projects for a service account without org-level visibility.
+- Recommender requires `recommender.googleapis.com` enabled per project; the tool will try to enable it if it has Service Usage permissions.
+- Use a quota project with billing enabled (or pass `--quota-project`) for Cloud Asset/Recommender APIs.
+
 ### Quick setup (service account with minimal permissions)
 ```bash
 # Set these values
