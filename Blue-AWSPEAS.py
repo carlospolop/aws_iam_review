@@ -12,6 +12,7 @@ from tqdm import tqdm
 import threading
 import concurrent.futures
 import time
+from typing import Optional
 from botocore.config import Config
 from botocore.exceptions import ClientError, NoCredentialsError
 from time import sleep
@@ -70,7 +71,7 @@ signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 
-def _principal_name_from_arn(arn: str | None) -> str | None:
+def _principal_name_from_arn(arn: Optional[str]) -> Optional[str]:
     if not arn:
         return None
     if arn.endswith(":root"):

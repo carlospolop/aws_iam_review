@@ -58,6 +58,65 @@ For best results, use `ReadOnlyAccess` plus Access Analyzer read access.
   - Customer-managed policy discovery: `iam:ListPolicies`, `iam:GetPolicy`, `iam:GetPolicyVersion`
   - User access keys (always reported): `iam:ListAccessKeys`, `iam:GetAccessKeyLastUsed`
 
+### Minimum permissions & setup (AWS CLI)
+Example of creating an IAM user with the minimal permissions to run Blue-AWSPEAS (includes Access Analyzer):
+
+```bash
+USER_NAME="blue-cloudpeass-auditor"
+
+aws iam create-user --user-name "${USER_NAME}"
+
+cat > /tmp/blue-aws-min.json <<'JSON'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BlueAwsPeassRead",
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetCallerIdentity",
+        "iam:ListUsers",
+        "iam:ListGroups",
+        "iam:ListRoles",
+        "iam:GetGroup",
+        "iam:ListGroupsForUser",
+        "iam:ListAttachedUserPolicies",
+        "iam:ListAttachedGroupPolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListUserPolicies",
+        "iam:ListGroupPolicies",
+        "iam:ListRolePolicies",
+        "iam:GetUserPolicy",
+        "iam:GetGroupPolicy",
+        "iam:GetRolePolicy",
+        "iam:ListPolicies",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListAccessKeys",
+        "iam:GetAccessKeyLastUsed",
+        "access-analyzer:List*",
+        "access-analyzer:Get*",
+        "access-analyzer:CreateAnalyzer",
+        "access-analyzer:DeleteAnalyzer",
+        "iam:CreateServiceLinkedRole"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+JSON
+
+aws iam put-user-policy \
+  --user-name "${USER_NAME}" \
+  --policy-name "BlueAwsPeassMin" \
+  --policy-document file:///tmp/blue-aws-min.json
+
+# Create access key for the user
+aws iam create-access-key --user-name "${USER_NAME}"
+```
+
+If you do not want Access Analyzer, remove the `access-analyzer:*` permissions and `iam:CreateServiceLinkedRole` from the policy.
+
 **If you use `--assume-roles`:**
 - `sts:AssumeRole` on the target role ARNs
 
@@ -420,6 +479,40 @@ For Graph-based resolution (recommended for readable output):
   - `AuditLog.Read.All` (for sign-in activity in many tenants; tool attempts `signInActivity` via v1.0 and beta)
   - `Group.Read.All` or `GroupMember.Read.All` (for group membership expansion)
 If these aren’t granted, the tool will still run but may fall back to object IDs for some principals.
+
+### Minimum permissions & setup (Azure CLI)
+Below is an end-to-end setup that creates a service principal, assigns the RBAC roles at the management-group scope (so all subscriptions inherit), and grants the Microsoft Graph app roles needed for identity resolution.
+
+```bash
+APP_NAME="blue-cloudpeass-auditor"
+MG_ID="your-management-group-id"
+SCOPE="/providers/Microsoft.Management/managementGroups/${MG_ID}"
+
+# Create the SP without RBAC assignments.
+az ad sp create-for-rbac --name "${APP_NAME}" --skip-assignment --sdk-auth > /tmp/blue-azure-sp.json
+
+# Fetch the appId for role assignments.
+APP_ID=$(az ad sp list --display-name "${APP_NAME}" --query "[0].appId" -o tsv)
+
+# RBAC roles at the management group scope (inherit to all subscriptions).
+az role assignment create --assignee "${APP_ID}" --role "Reader" --scope "${SCOPE}"
+az role assignment create --assignee "${APP_ID}" --role "Monitoring Reader" --scope "${SCOPE}"
+az role assignment create --assignee "${APP_ID}" --role "Management Group Reader" --scope "${SCOPE}"
+
+# Microsoft Graph app roles (admin consent required).
+GRAPH_APP_ID="00000003-0000-0000-c000-000000000000"
+az ad app permission add --id "${APP_ID}" --api "${GRAPH_APP_ID}" --api-permissions \
+  7ab1d382-f21e-4acd-a863-ba3e13f7da61=Role \
+  df021288-bdef-4463-88db-98f22de89214=Role \
+  b0afded3-3588-46d8-8b3d-9842eff778da=Role \
+  5b567255-7703-4780-807c-7be8301ae99b=Role \
+  98830695-27a2-44f7-8c18-0c3ebc9698f6=Role
+az ad app permission admin-consent --id "${APP_ID}"
+```
+
+Notes:
+- If you scan only specific subscriptions, you can assign the RBAC roles at subscription scope instead of the management group.
+- If you don’t want Graph resolution/guest scanning, run with `--no-resolve-principals --no-scan-entra` and skip the Graph app roles.
 
 ### Help
 ```bash
