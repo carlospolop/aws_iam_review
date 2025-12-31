@@ -193,6 +193,7 @@ Use a dedicated auditor identity with read-only roles that cover:
   - `recommender.locations.list`
   - `recommender.iamPolicyRecommendations.list`
   - `recommender.iamPolicyChangeRiskRecommendations.list`
+  - `recommender.iamServiceAccountChangeRiskRecommendations.list`
 - Cloud Asset (resource IAM scan is enabled by default):
   - `cloudasset.assets.searchAllIamPolicies`
 - Role expansion:
@@ -208,6 +209,7 @@ Use a dedicated auditor identity with read-only roles that cover:
   - `logging.logEntries.list`
 - Enabling missing APIs (only if not enabled; quota project only):
   - `serviceusage.services.use`
+  - `serviceusage.services.get`
   - `serviceusage.services.list`
   - `serviceusage.services.enable`
 

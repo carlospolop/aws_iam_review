@@ -236,6 +236,28 @@ def list_projects_in_organization(*, organization_id: str, token: str, quota_pro
     return sorted(set(project_ids))
 
 
+def ensure_service_enabled(*, project_id: str, service: str, token: str, quota_project: str) -> Optional[str]:
+    """Best-effort enable of a Google API service in a project."""
+    if not project_id or not service:
+        return None
+    service = service.strip()
+    try:
+        url = f"https://serviceusage.googleapis.com/v1/projects/{project_id}/services/{service}"
+        data = http_json(url, token=token, quota_project=quota_project)
+        state = data.get("state")
+        if state == "ENABLED":
+            return None
+    except Exception:
+        # If we can't read service state, still try to enable below.
+        pass
+    try:
+        url = f"https://serviceusage.googleapis.com/v1/projects/{project_id}/services/{service}:enable"
+        http_json(url, token=token, quota_project=quota_project, method="POST", body={})
+        return None
+    except Exception as exc:
+        return str(exc)
+
+
 def list_all_accessible_projects(*, token: str, quota_project: str) -> list[str]:
     """
     List all ACTIVE projects the current identity can see.
@@ -1437,6 +1459,15 @@ def main() -> int:
 
         if progress_cb:
             progress_cb("recommender")
+        # Best-effort: enable Recommender API if missing.
+        if scope_type == "project":
+            err = ensure_service_enabled(
+                project_id=project_id, service="recommender.googleapis.com", token=token, quota_project=quota_project
+            )
+            if err:
+                project_out["errors"].append(
+                    {"kind": "serviceusage", "service": "recommender.googleapis.com", "error": err}
+                )
         active_recommenders = recommenders_org if scope_type == "organization" else recommenders_project
         for recommender_id in active_recommenders:
             locations = list_recommender_locations(parent=scope, token=token, quota_project=quota_project)
