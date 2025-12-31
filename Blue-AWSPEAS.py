@@ -1065,7 +1065,7 @@ def get_all_unused_permissions(accessanalyzer, analyzer_arn, verbose):
 
 def process_unused_permissions_for_principal(accessanalyzer, analyzer_arn, arn, type_ppal, permissions_dict, unused_perms, lock, verbose, finding_ids):
     """Process unused permission findings for a specific principal (given pre-fetched finding IDs)."""
-    if not finding_ids or not permissions_dict or permissions_dict.get("is_admin", False):
+    if not finding_ids or not permissions_dict:
         return
     
     last_perms = {}
@@ -1559,9 +1559,11 @@ def process_account(
 
             # Wait for analyzers if just created
             if not already_created_analyzers:
-                print(f"{colored('[+] ', 'grey')}Waiting for analyzers to become active...")
-                # Poll analyzer status instead of fixed sleep
-                max_wait_seconds = 180  # 3 minutes max
+                print(f"{colored('[+] ', 'grey')}Waiting 3 minutes for analyzers to collect data...")
+                time.sleep(180)
+                print(f"{colored('[+] ', 'grey')}Checking analyzer status...")
+                # Poll analyzer status after initial wait
+                max_wait_seconds = 60  # extra 1 minute max
                 poll_interval = 10  # Check every 10 seconds
                 start_time = time.time()
                 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 from typing import Any, Optional
 
 
@@ -85,6 +86,64 @@ def _compact_permissions(perms: Optional[dict[str, Any]]) -> dict[str, Any]:
     if isinstance(all_actions, list):
         out["total_actions"] = len(all_actions)
     return out
+
+
+def _unused_permission_last_used(
+    flagged_perms: dict[str, Any],
+    last_perms: Optional[dict[str, Any]],
+    perm_catalog: dict[str, int],
+    perm_items: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], set[str]]:
+    if not isinstance(flagged_perms, dict) or not isinstance(last_perms, dict):
+        return [], set()
+    flagged_list: list[str] = []
+    for lvl in ("critical", "high", "medium", "low"):
+        items = flagged_perms.get(lvl)
+        if isinstance(items, list):
+            flagged_list.extend([p for p in items if isinstance(p, str) and p])
+    if not flagged_list:
+        return [], set()
+
+    exact_actions: dict[str, int] = {}
+    service_actions: dict[str, int] = {}
+    for service, details in last_perms.items():
+        if not isinstance(service, str) or not isinstance(details, dict):
+            continue
+        service_days = details.get("n_days")
+        found_action = False
+        for action, meta in details.items():
+            if action == "n_days" or not isinstance(meta, dict):
+                continue
+            if "n_days" not in meta:
+                continue
+            found_action = True
+            action_name = f"{service}:{action}"
+            exact_actions[action_name] = meta.get("n_days")
+        if not found_action and isinstance(service_days, int):
+            service_actions[f"{service}:*"] = service_days
+
+    out: list[dict[str, Any]] = []
+    unused_perms: set[str] = set()
+    for perm in flagged_list:
+        n_days = None
+        if perm in exact_actions:
+            n_days = exact_actions.get(perm)
+        else:
+            for pattern, pattern_days in service_actions.items():
+                if fnmatch.fnmatch(perm, pattern) or fnmatch.fnmatch(pattern, perm):
+                    n_days = pattern_days
+                    break
+            if n_days is None:
+                for action, action_days in exact_actions.items():
+                    if fnmatch.fnmatch(action, perm):
+                        n_days = action_days
+                        break
+        if n_days is None:
+            continue
+        perm_ref = _catalog_add(perm_catalog, perm_items, perm, {"name": perm})
+        out.append({"permission_ref": perm_ref, "unused_days": n_days})
+        unused_perms.add(perm)
+    return out, unused_perms
 
 
 def _source_descriptor(source: Any) -> Optional[dict[str, Any]]:
@@ -342,13 +401,38 @@ def normalize_aws_account(raw: dict[str, Any]) -> dict[str, Any]:
                 continue
             perms = data.get("permissions") or {}
             perms = _compact_permissions(perms)
+            last_used, unused_perm_names = _unused_permission_last_used(
+                perms.get("flagged_perms") or {},
+                data.get("last_perms"),
+                perm_catalog,
+                perm_items,
+            )
+            filtered_flagged = {}
+            for lvl, items in (perms.get("flagged_perms") or {}).items():
+                if not isinstance(items, list):
+                    continue
+                kept = [p for p in items if p in unused_perm_names]
+                if kept:
+                    filtered_flagged[lvl] = kept
+            filtered_sources = {}
+            for lvl, items in (perms.get("flagged_perm_sources") or {}).items():
+                if not isinstance(items, list):
+                    continue
+                kept = [entry for entry in items if isinstance(entry, dict) and entry.get("permission") in unused_perm_names]
+                if kept:
+                    filtered_sources[lvl] = kept
+            perms["flagged_perms"] = filtered_flagged
+            if filtered_sources:
+                perms["flagged_perm_sources"] = filtered_sources
+            if not perms.get("flagged_perms"):
+                continue
             entry = _aws_principal_entry(
                 principal_type=str(data.get("type") or "principal"),
                 principal_id=str(arn),
                 principal_label=str(arn),
                 flagged_permissions=perms.get("flagged_perms"),
                 flagged_permission_sources=perms.get("flagged_perm_sources"),
-                extra={"unused_permissions": perms},
+                extra={"unused_permissions": perms, "unused_permission_last_used": last_used},
                 perm_catalog=perm_catalog,
                 perm_items=perm_items,
                 role_catalog=role_catalog,
