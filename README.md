@@ -222,6 +222,35 @@ Common built-in roles that usually work:
 - If you want group membership expansion (Cloud Identity): a role that grants the above Cloud Identity permissions (e.g., a custom role or the Cloud Identity groups/memberships read-only roles in your org).
 - If you want the tool to auto-enable missing APIs: `roles/serviceusage.serviceUsageAdmin` on the quota project (or pre-enable APIs).
 
+### Quick setup (service account with minimal permissions)
+```bash
+# Set these values
+ORG_ID="1234567890"
+PROJECT_ID="my-project"
+
+# Create service account
+gcloud iam service-accounts create blue-cloudpeass-auditor \
+  --display-name="Blue CloudPEASS Auditor" \
+  --project "$PROJECT_ID"
+
+# Create org-level custom role with minimal permissions
+gcloud iam roles create blueCloudpeassAuditor \
+  --organization "$ORG_ID" \
+  --title="Blue CloudPEASS Auditor" \
+  --description="Least-privilege permissions for Blue-GCPPEAS" \
+  --stage=GA \
+  --permissions="resourcemanager.projects.get,resourcemanager.projects.list,resourcemanager.projects.getIamPolicy,resourcemanager.organizations.get,resourcemanager.organizations.getIamPolicy,resourcemanager.folders.getIamPolicy,iam.roles.get,iam.roles.list,iam.serviceAccountKeys.list,cloudasset.assets.searchAllIamPolicies,logging.logEntries.list,recommender.locations.list,recommender.iamPolicyRecommendations.list,recommender.iamPolicyChangeRiskRecommendations.list,recommender.iamServiceAccountChangeRiskRecommendations.list,serviceusage.services.use,serviceusage.services.get,serviceusage.services.list,serviceusage.services.enable"
+
+# Grant the org role to the SA
+gcloud organizations add-iam-policy-binding "$ORG_ID" \
+  --member="serviceAccount:blue-cloudpeass-auditor@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role="organizations/${ORG_ID}/roles/blueCloudpeassAuditor"
+
+# Create key file
+gcloud iam service-accounts keys create ./blue-cloudpeass-key.json \
+  --iam-account="blue-cloudpeass-auditor@${PROJECT_ID}.iam.gserviceaccount.com"
+```
+
 ### Help
 ```bash
 python3 Blue-GCPPEAS.py --help
