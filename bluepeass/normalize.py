@@ -692,6 +692,13 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(k, dict):
             continue
         member = k.get("service_account") or k.get("principal") or ""
+        key_obj = k.get("key")
+        key_id = k.get("key_name")
+        if not isinstance(key_id, str) or not key_id:
+            if isinstance(key_obj, dict):
+                key_id = key_obj.get("name")
+            else:
+                key_id = None
         ptype, pid = _gcp_member_to_type_and_id(str(member))
         subject_ref, subject_kind = _subject_ref(
             subject_type=ptype,
@@ -708,7 +715,7 @@ def normalize_gcp_scope(raw: dict[str, Any]) -> dict[str, Any]:
                 "key_type": "service_account_key",
                 "subject_ref": subject_ref,
                 "subject_kind": subject_kind,
-                "key_id": k.get("key"),
+                "key_id": key_id,
                 "status": k.get("status"),
                 "inactive": k.get("inactive"),
                 "reason": k.get("reason"),
