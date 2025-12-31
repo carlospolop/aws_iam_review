@@ -117,7 +117,7 @@ def _compact_flagged_sources(
     for lvl, items in flagged_permission_sources.items():
         if not isinstance(items, list):
             continue
-        new_items: list[dict[str, Any]] = []
+        perm_sources: dict[int, set[int]] = {}
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -125,17 +125,18 @@ def _compact_flagged_sources(
             if not isinstance(perm, str) or not perm:
                 continue
             perm_id = _catalog_add(perm_catalog, perm_items, perm, {"name": perm})
-            source_ids: list[int] = []
             for src in item.get("sources") or []:
                 desc = _source_descriptor(src)
                 if not desc:
                     continue
                 key = (desc["label"], desc["type"])
                 role_id = _catalog_add(role_catalog, role_items, key, {"label": desc["label"], "type": desc["type"]})
-                source_ids.append(role_id)
-            new_items.append({"permission": perm_id, "sources": source_ids})
-        if new_items:
-            out[lvl] = new_items
+                perm_sources.setdefault(perm_id, set()).add(role_id)
+        if perm_sources:
+            out[lvl] = [
+                {"permission": perm_id, "sources": sorted(source_ids)}
+                for perm_id, source_ids in perm_sources.items()
+            ]
     return out
 
 
